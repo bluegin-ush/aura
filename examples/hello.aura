@@ -1,0 +1,13 @@
++http +json
+
+@User {
+    id:uuid @pk
+    name:s @min(2)
+    email:s? @email
+}
+
+greeting(name) = "Hello {name}!"
+
+fetch(id) = http.get("users/{id}").json(User)
+
+main = greeting("AURA")

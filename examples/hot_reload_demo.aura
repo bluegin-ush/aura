@@ -1,0 +1,16 @@
++core +append
+
+# Ejemplo: Hot Reload
+# Este archivo demuestra la capacidad de expansión en caliente
+
+# Definición inicial
+greet(name) = "Hello {name}!"
+
+main = greet("World")
+
+# --- Después de ejecutar, se puede agregar sin reiniciar: ---
+#
+# farewell(name) = "Goodbye {name}!"
+#
+# El runtime detecta el nuevo código y lo incorpora
+# sin perder el estado existente (variables, conexiones, etc.)

@@ -1,0 +1,29 @@
++core +agent(on_error: .fix)
+
+# Ejemplo: Self-Healing
+# Este archivo demuestra la auto-reparación de errores
+
+# Si el agente detecta un error, intentará repararlo automáticamente
+# Por ejemplo, si llamamos a una función que no existe:
+
+process_data(items) = items | map(_.value) | sum
+
+main = {
+    data = [{ value: 10 }, { value: 20 }, { value: 30 }]
+
+    # Si 'sum' no está definido, el agente puede:
+    # 1. Sugerir la implementación
+    # 2. Aplicar un fix automático
+    # 3. Escalar al desarrollador
+
+    result = process_data(data)
+    print!("Total: {result}")
+}
+
+# Configuración del agente:
+# +agent(
+#     provider: "anthropic"     # Usar Claude
+#     on_error: .fix            # Auto-reparar errores
+#     on_missing: .generate     # Generar código faltante
+#     confidence_threshold: 0.8 # Solo aplicar si confianza > 80%
+# )

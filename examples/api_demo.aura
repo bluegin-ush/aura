@@ -1,0 +1,25 @@
++http +json
+
+# Ejemplo: Consumir una API REST
+# Este archivo demuestra las capacidades +http y +json de AURA
+
+# Obtener datos de una API pública
+fetch_user!(id) = http.get!("https://jsonplaceholder.typicode.com/users/{id}")
+
+# Parsear la respuesta JSON
+get_user_name!(id) = fetch_user!(id).body | json.parse | _.name
+
+# Crear un nuevo post
+create_post!(title body) = http.post!(
+    "https://jsonplaceholder.typicode.com/posts"
+    json.stringify({ title: title, body: body, userId: 1 })
+)
+
+# Main: demostrar el flujo completo
+main = {
+    user = get_user_name!(1)
+    print!("Usuario: {user}")
+
+    post = create_post!("Hello from AURA" "Este post fue creado por AURA")
+    print!("Post creado: {post.body}")
+}

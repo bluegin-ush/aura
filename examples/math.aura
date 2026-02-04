@@ -1,0 +1,9 @@
++core
+
+square(x) = x * x
+
+cube(x) = x * x * x
+
+factorial(n) = n * factorial(n - 1)
+
+main = square(5) + cube(3)
