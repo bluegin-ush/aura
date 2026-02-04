@@ -61,6 +61,8 @@ mod snapshot;
 mod undo;
 #[cfg(feature = "claude-api")]
 mod claude;
+#[cfg(feature = "ollama")]
+mod ollama;
 
 pub use request::{AgentRequest, EventType, Context, SourceLocation, Constraints};
 pub use response::{AgentResponse, Action, Patch, Suggestion};
@@ -71,3 +73,5 @@ pub use undo::{UndoManager, UndoError, HealingAction, VerificationResult, UndoRe
 
 #[cfg(feature = "claude-api")]
 pub use claude::ClaudeProvider;
+#[cfg(feature = "ollama")]
+pub use ollama::OllamaProvider;

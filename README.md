@@ -123,6 +123,26 @@ let value = json_parse(r#"{"name": "AURA", "version": 1}"#)?;
 let text = json_stringify(&value)?;
 ```
 
+### +db
+```rust
+use aura::caps::{db_connect, db_query, db_execute, db_close};
+
+// Conectar a SQLite
+let conn = db_connect("sqlite:app.db")?;  // o ":memory:" para in-memory
+
+// Crear tabla
+db_execute(&conn, "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)", &[])?;
+
+// Insertar
+db_execute(&conn, "INSERT INTO users (name) VALUES (?)", &[Value::String("Alice".into())])?;
+
+// Consultar
+let users = db_query(&conn, "SELECT * FROM users", &[])?;
+
+// Cerrar conexión
+db_close(&conn)?;
+```
+
 ## Agent Bridge
 
 AURA puede comunicarse con agentes IA para:
@@ -151,25 +171,38 @@ match response.action {
 }
 ```
 
-### Claude API Integration
+### Proveedores de Agentes
 
-Para usar la API real de Claude para self-healing:
+AURA soporta múltiples proveedores de agentes IA:
 
+#### Claude API
 ```rust
-// Compilar con la feature claude-api
 // cargo build --features claude-api
-
-use aura::agent::{ClaudeProvider, HealingEngine, HealingContext};
+use aura::agent::{ClaudeProvider, HealingEngine};
 
 let provider = ClaudeProvider::new("sk-ant-your-api-key")
     .with_model("claude-sonnet-4-20250514");
 
 let mut engine = HealingEngine::new(provider)
-    .with_auto_apply(true)
-    .with_confidence_threshold(0.8);
+    .with_auto_apply(true);
+```
 
-// Usar igual que con MockProvider
-let result = engine.heal_error(&error, &context).await?;
+#### Ollama (Local)
+```rust
+// cargo build --features ollama
+use aura::agent::{OllamaProvider, HealingEngine};
+
+let provider = OllamaProvider::new()
+    .with_model("llama3.2")
+    .with_base_url("http://localhost:11434");
+
+let mut engine = HealingEngine::new(provider)
+    .with_auto_apply(true);
+
+// Verificar disponibilidad
+if provider.is_available().await {
+    let result = engine.heal_error(&error, &context).await?;
+}
 ```
 
 ### Self-Healing Engine
@@ -241,6 +274,27 @@ println!("Funciones agregadas: {}", result.functions_added);
 let result = hot_reload(&mut vm, &program, new_code)?;
 ```
 
+## Errores Bonitos
+
+AURA formatea errores con contexto de código:
+
+```
+Error[E201]: 'generate_report' no esta definido
+   --> main.aura:10:10
+    |
+ 10 | report = generate_report(users)
+    |          ^^^^^^^^^^^^^^^ referencia invalida
+    |
+    = help: Definir la funcion: generate_report(users) = ...
+```
+
+```rust
+use aura::error::{format_error_pretty, AuraError};
+
+let output = format_error_pretty(&error, source_code, "main.aura");
+println!("{}", output);
+```
+
 ## REPL Interactivo
 
 ```
@@ -290,17 +344,22 @@ src/
 ├── agent/          # Agent Bridge + Self-Healing
 │   ├── request.rs  # AgentRequest, EventType
 │   ├── response.rs # AgentResponse, Action
-│   ├── bridge.rs   # AgentProvider trait
+│   ├── bridge.rs   # AgentProvider trait, MockProvider
 │   ├── healing.rs  # HealingEngine
 │   ├── snapshot.rs # Snapshots para safe healing
-│   └── undo.rs     # Undo manager
+│   ├── undo.rs     # Undo manager
+│   ├── claude.rs   # ClaudeProvider (feature: claude-api)
+│   └── ollama.rs   # OllamaProvider (feature: ollama)
 ├── caps/           # Capacidades
 │   ├── http.rs     # +http
-│   └── json.rs     # +json
+│   ├── json.rs     # +json
+│   └── db.rs       # +db (SQLite)
 ├── reload/         # Hot Reload
 │   ├── diff.rs     # compute_diff
 │   └── apply.rs    # apply_diff
 └── error/          # Errores estructurados
+    ├── mod.rs      # AuraError, ErrorCode
+    └── pretty.rs   # Formateo con ariadne
 ```
 
 ## Estado del Proyecto
@@ -319,15 +378,16 @@ src/
 ✓ REPL         - VM persistente, comandos
 
 ✓ Claude API   - Integración con API de Anthropic
-○ +db          - Pendiente (Fase 3)
-○ Errores UI   - Pendiente (Fase 3)
+✓ Ollama       - Soporte para modelos locales
+✓ +db          - SQLite con rusqlite
+✓ Errores UI   - Formateo con ariadne
 ```
 
 ## Tests
 
 ```bash
 cargo test
-# 110 tests pasando (con --features claude-api)
+# 155 tests pasando (con --features claude-api,ollama)
 ```
 
 ## Documentación

@@ -8,6 +8,7 @@ license = "MIT"
 [features]
 default = []
 claude-api = []  # Habilita integración con Claude API
+ollama = []      # Habilita integración con Ollama (modelos locales)
 
 [dependencies]
 # Lexer - tokenización ultra rápida
@@ -34,3 +35,9 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 
 # Utilidades
 thiserror = "2.0"
+
+# SQLite database (for +db capability)
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# Lazy static for global connection registry
+lazy_static = "1.5"

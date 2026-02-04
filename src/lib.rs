@@ -20,7 +20,16 @@ pub mod reload;
 pub mod types;
 pub mod vm;
 
-pub use error::AuraError;
+pub use error::{
+    AuraError,
+    ErrorCode,
+    Errors,
+    Location,
+    Severity,
+    Suggestion,
+    format_error_pretty,
+    format_errors_pretty,
+};
 pub use lexer::{tokenize, Token};
 pub use parser::{parse, parse_expression, parse_function_def, looks_like_function_def, Program, Expr, Type, Definition, FuncDef};
 pub use vm::Value;

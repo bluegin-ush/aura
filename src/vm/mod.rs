@@ -17,6 +17,10 @@ pub enum Value {
     List(Vec<Value>),
     Record(HashMap<String, Value>),
     Function(String),
+    /// Native handle for external resources (database connections, file handles, etc.)
+    /// Contains a type identifier and a unique handle ID
+    #[serde(skip)]
+    Native { type_id: String, handle: u64 },
 }
 
 impl std::fmt::Display for Value {
@@ -48,6 +52,7 @@ impl std::fmt::Display for Value {
                 write!(f, "}}")
             }
             Value::Function(name) => write!(f, "<fn {}>", name),
+            Value::Native { type_id, handle } => write!(f, "<{} #{}>", type_id, handle),
         }
     }
 }
@@ -520,6 +525,7 @@ impl VM {
                     Some(Value::List(_)) => Ok(Value::String("list".to_string())),
                     Some(Value::Record(_)) => Ok(Value::String("record".to_string())),
                     Some(Value::Function(_)) => Ok(Value::String("function".to_string())),
+                    Some(Value::Native { type_id, .. }) => Ok(Value::String(type_id.clone())),
                     None => Ok(Value::String("nil".to_string())),
                 }
             }

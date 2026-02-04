@@ -95,6 +95,13 @@ fn value_to_json(value: &Value) -> Result<JsonValue, RuntimeError> {
                 name
             )))
         }
+        Value::Native { type_id, .. } => {
+            // Los handles nativos no se pueden serializar a JSON
+            Err(RuntimeError::new(format!(
+                "Cannot serialize native handle '{}' to JSON",
+                type_id
+            )))
+        }
     }
 }
 
@@ -183,5 +190,16 @@ mod tests {
 
         // Verificar que tiene formato con saltos de linea
         assert!(pretty.contains('\n'));
+    }
+
+    #[test]
+    fn test_json_stringify_native_error() {
+        let native = Value::Native {
+            type_id: "db:sqlite".to_string(),
+            handle: 42,
+        };
+        let result = json_stringify(&native);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("native handle"));
     }
 }
