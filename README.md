@@ -170,6 +170,38 @@ if result.is_fixed() {
 }
 ```
 
+### Safe Healing con Snapshots
+
+El sistema de Safe Healing permite revertir fixes fallidos:
+
+```rust
+use aura::agent::{HealingEngine, HealingContext, MockProvider, UndoManager, SnapshotManager};
+
+// Crear managers
+let snapshot_manager = SnapshotManager::new(50); // Max 50 snapshots
+let mut undo_manager = UndoManager::new(snapshot_manager);
+
+let provider = MockProvider::new();
+let mut engine = HealingEngine::new(provider)
+    .with_auto_apply(true);
+
+let error = RuntimeError::new("Variable no definida: x");
+let context = HealingContext::new("x + 1", "main.aura", 1, 1);
+
+// Healing seguro - crea snapshot antes de aplicar fix
+let result = engine.heal_error_safe(&error, &context, &mut undo_manager, "x + 1").await?;
+
+// Si el fix falla, se puede revertir
+if undo_manager.can_undo() {
+    let (action, snapshot) = undo_manager.prepare_undo()?;
+    // Restaurar archivos desde el snapshot
+    for (path, file_snap) in &snapshot.files {
+        std::fs::write(path, &file_snap.content)?;
+    }
+    undo_manager.confirm_undo();
+}
+```
+
 ## Hot Reload
 
 Agregar código sin reiniciar el runtime:
@@ -238,7 +270,9 @@ src/
 │   ├── request.rs  # AgentRequest, EventType
 │   ├── response.rs # AgentResponse, Action
 │   ├── bridge.rs   # AgentProvider trait
-│   └── healing.rs  # HealingEngine
+│   ├── healing.rs  # HealingEngine
+│   ├── snapshot.rs # Snapshots para safe healing
+│   └── undo.rs     # Undo manager
 ├── caps/           # Capacidades
 │   ├── http.rs     # +http
 │   └── json.rs     # +json
@@ -257,6 +291,7 @@ src/
 ✓ VM           - Interpretación con interpolación
 ✓ Agent Bridge - Protocolo request/response
 ✓ Self-Healing - HealingEngine con auto-apply
+✓ Safe Healing - Snapshots + Undo para revertir fixes fallidos
 ✓ +http        - GET, POST, PUT, DELETE
 ✓ +json        - parse, stringify
 ✓ Hot Reload   - compute_diff, apply_diff
@@ -271,7 +306,7 @@ src/
 
 ```bash
 cargo test
-# 83 tests pasando
+# 103 tests pasando
 ```
 
 ## Documentación
@@ -284,6 +319,7 @@ Ver carpeta `req/` para especificaciones completas:
 - `v4-agente-bridge.md` - Protocolo agente-runtime
 - `v5-implementacion-fase1.md` - Fase 1 completada
 - `v6-roadmap-fase2.md` - Fase 2 completada
+- `v7-roadmap-fase3.md` - Fase 3 en progreso
 
 ## Contribuir
 

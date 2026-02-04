@@ -57,11 +57,15 @@ mod request;
 mod response;
 mod bridge;
 mod healing;
+mod snapshot;
+mod undo;
 
 pub use request::{AgentRequest, EventType, Context, SourceLocation, Constraints};
 pub use response::{AgentResponse, Action, Patch, Suggestion};
 pub use bridge::{AgentProvider, AgentError, MockProvider};
 pub use healing::{HealingEngine, HealingContext, HealingResult, HealingError};
+pub use snapshot::{Snapshot, SnapshotId, SnapshotManager, SnapshotReason, SnapshotError, FileSnapshot, SnapshotSummary, RestoreResult};
+pub use undo::{UndoManager, UndoError, HealingAction, VerificationResult, UndoResult, RedoResult};
 
 #[cfg(feature = "claude-api")]
 pub use bridge::ClaudeProvider;

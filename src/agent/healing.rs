@@ -30,8 +30,12 @@
 //! ```
 
 use std::fmt;
+use std::path::PathBuf;
 
-use super::{AgentRequest, AgentResponse, AgentProvider, AgentError, EventType, Action, Context};
+use super::{AgentRequest, AgentResponse, AgentProvider, AgentError, Action, Context};
+use super::snapshot::{SnapshotReason, SnapshotId};
+use super::undo::{UndoManager, HealingAction, VerificationResult};
+use super::response::Patch;
 use crate::vm::RuntimeError;
 
 /// Umbral minimo de confianza para aplicar fixes automaticamente
@@ -299,6 +303,95 @@ impl<P: AgentProvider> HealingEngine<P> {
     pub fn max_attempts(&self) -> usize {
         self.max_attempts
     }
+
+    /// Intenta reparar un error de forma segura con snapshots
+    ///
+    /// Esta version crea un snapshot antes de aplicar cualquier fix,
+    /// permitiendo revertir cambios si la reparacion falla.
+    pub async fn heal_error_safe(
+        &mut self,
+        error: &RuntimeError,
+        context: &HealingContext,
+        undo_manager: &mut UndoManager,
+        file_content: &str,
+    ) -> Result<SafeHealingResult, HealingError> {
+        // 1. Crear snapshot antes de cualquier cambio
+        let file_path = PathBuf::from(&context.file_name);
+        let snapshot_id = undo_manager
+            .create_snapshot_with_files(
+                SnapshotReason::BeforeHeal {
+                    error_id: error.message.clone(),
+                },
+                vec![(file_path.clone(), file_content.to_string())],
+            )
+            .map_err(|e| HealingError::SnapshotError(e.to_string()))?;
+
+        // 2. Intentar healing normal
+        let result = self.heal_error(error, context).await?;
+
+        // 3. Si se obtuvo un fix, registrar la accion
+        if let HealingResult::Fixed { ref patch, ref explanation } = result {
+            // Crear el objeto Patch para el historial
+            let patch_obj = Patch::new(&context.source_code, patch)
+                .with_location(&context.file_name, context.line, context.line);
+
+            // Registrar la accion en el historial
+            let action = HealingAction::new(
+                snapshot_id.clone(),
+                patch_obj,
+                self.confidence_threshold, // Sabemos que paso el threshold
+                file_path,
+            );
+
+            undo_manager.record_action(action);
+
+            return Ok(SafeHealingResult::Fixed {
+                snapshot_id,
+                patch: patch.clone(),
+                explanation: explanation.clone(),
+            });
+        }
+
+        // Si no se aplico fix, devolver el resultado normal sin registrar accion
+        Ok(SafeHealingResult::from_healing_result(result, snapshot_id))
+    }
+
+    /// Intenta reparar y verificar, revirtiendo si la verificacion falla
+    pub async fn heal_and_verify<V: FnOnce(&str) -> VerificationResult>(
+        &mut self,
+        error: &RuntimeError,
+        context: &HealingContext,
+        undo_manager: &mut UndoManager,
+        file_content: &str,
+        verifier: V,
+    ) -> Result<SafeHealingResult, HealingError> {
+        let result = self.heal_error_safe(error, context, undo_manager, file_content).await?;
+
+        if let SafeHealingResult::Fixed { ref snapshot_id, ref patch, .. } = result {
+            // Verificar el fix
+            let verification = verifier(patch);
+
+            match verification {
+                VerificationResult::Failure { ref error, .. } => {
+                    // Preparar para revertir
+                    if undo_manager.can_undo() {
+                        // El caller debe aplicar el undo manualmente
+                        return Ok(SafeHealingResult::VerificationFailed {
+                            snapshot_id: snapshot_id.clone(),
+                            patch: patch.clone(),
+                            error: error.clone(),
+                        });
+                    }
+                }
+                _ => {
+                    // Verificacion exitosa, actualizar el historial
+                    // (La accion ya fue registrada en heal_error_safe)
+                }
+            }
+        }
+
+        Ok(result)
+    }
 }
 
 /// Contexto para la reparacion de errores
@@ -410,6 +503,96 @@ impl HealingResult {
     }
 }
 
+/// Resultado de healing seguro con snapshots
+#[derive(Debug, Clone)]
+pub enum SafeHealingResult {
+    /// Fix aplicado exitosamente con snapshot creado
+    Fixed {
+        /// ID del snapshot creado antes del fix
+        snapshot_id: SnapshotId,
+        /// El patch aplicado
+        patch: String,
+        /// Explicacion del fix
+        explanation: String,
+    },
+    /// Sugerencias disponibles (no se modifico nada)
+    Suggested {
+        /// ID del snapshot (puede no tener cambios)
+        snapshot_id: SnapshotId,
+        /// Sugerencias de codigo
+        suggestions: Vec<String>,
+    },
+    /// Se necesita intervencion humana
+    NeedsHuman {
+        /// ID del snapshot
+        snapshot_id: SnapshotId,
+        /// Razon
+        reason: String,
+    },
+    /// No se puede reparar
+    CannotFix {
+        /// ID del snapshot
+        snapshot_id: SnapshotId,
+        /// Razon
+        reason: String,
+    },
+    /// Fix aplicado pero verificacion fallo (se debe revertir)
+    VerificationFailed {
+        /// ID del snapshot para revertir
+        snapshot_id: SnapshotId,
+        /// El patch que fallo
+        patch: String,
+        /// Error de verificacion
+        error: String,
+    },
+}
+
+impl SafeHealingResult {
+    /// Convierte un HealingResult normal a SafeHealingResult
+    pub fn from_healing_result(result: HealingResult, snapshot_id: SnapshotId) -> Self {
+        match result {
+            HealingResult::Fixed { patch, explanation } => Self::Fixed {
+                snapshot_id,
+                patch,
+                explanation,
+            },
+            HealingResult::Suggested { suggestions } => Self::Suggested {
+                snapshot_id,
+                suggestions,
+            },
+            HealingResult::NeedsHuman { reason } => Self::NeedsHuman {
+                snapshot_id,
+                reason,
+            },
+            HealingResult::CannotFix { reason } => Self::CannotFix {
+                snapshot_id,
+                reason,
+            },
+        }
+    }
+
+    /// Verifica si el resultado es un fix exitoso
+    pub fn is_fixed(&self) -> bool {
+        matches!(self, Self::Fixed { .. })
+    }
+
+    /// Verifica si la verificacion fallo
+    pub fn verification_failed(&self) -> bool {
+        matches!(self, Self::VerificationFailed { .. })
+    }
+
+    /// Obtiene el snapshot ID
+    pub fn snapshot_id(&self) -> &SnapshotId {
+        match self {
+            Self::Fixed { snapshot_id, .. } |
+            Self::Suggested { snapshot_id, .. } |
+            Self::NeedsHuman { snapshot_id, .. } |
+            Self::CannotFix { snapshot_id, .. } |
+            Self::VerificationFailed { snapshot_id, .. } => snapshot_id,
+        }
+    }
+}
+
 /// Errores del motor de auto-reparacion
 #[derive(Debug, Clone)]
 pub enum HealingError {
@@ -419,6 +602,8 @@ pub enum HealingError {
     InvalidResponse(String),
     /// Se alcanzo el maximo de intentos
     MaxAttemptsReached,
+    /// Error del sistema de snapshots
+    SnapshotError(String),
 }
 
 impl fmt::Display for HealingError {
@@ -427,6 +612,7 @@ impl fmt::Display for HealingError {
             Self::ProviderError(e) => write!(f, "Error del proveedor: {}", e),
             Self::InvalidResponse(msg) => write!(f, "Respuesta invalida: {}", msg),
             Self::MaxAttemptsReached => write!(f, "Se alcanzo el maximo de intentos de reparacion"),
+            Self::SnapshotError(msg) => write!(f, "Error de snapshot: {}", msg),
         }
     }
 }

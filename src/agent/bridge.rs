@@ -8,7 +8,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use super::request::AgentRequest;
-use super::response::{AgentResponse, Action, Patch, ResponseMetadata};
+use super::response::{AgentResponse, Patch, ResponseMetadata};
 
 /// Errores del Agent Bridge
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -354,7 +354,7 @@ impl Default for ProviderSelector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::{EventType, AgentRequest};
+    use crate::agent::{EventType, AgentRequest, Action};
 
     #[tokio::test]
     async fn test_mock_provider() {
