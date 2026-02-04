@@ -38,7 +38,7 @@ La Fase 3 se enfoca en dos áreas críticas:
 
 ---
 
-## Track A: Self-Healing Seguro
+## Track A: Self-Healing Seguro ✓ COMPLETADO
 
 **Problema:** El HealingEngine actual puede aplicar fixes automáticos, pero si el fix es incorrecto:
 - El código queda roto
@@ -196,9 +196,11 @@ src/agent/
 
 ---
 
-## Track B: Claude API Real
+## Track B: Claude API Real ✓ COMPLETADO
 
 **Objetivo:** Implementar ClaudeProvider real usando la API de Anthropic.
+
+**Estado:** Implementado en `src/agent/claude.rs`
 
 ### B1. API Client
 

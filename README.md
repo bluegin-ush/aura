@@ -151,6 +151,27 @@ match response.action {
 }
 ```
 
+### Claude API Integration
+
+Para usar la API real de Claude para self-healing:
+
+```rust
+// Compilar con la feature claude-api
+// cargo build --features claude-api
+
+use aura::agent::{ClaudeProvider, HealingEngine, HealingContext};
+
+let provider = ClaudeProvider::new("sk-ant-your-api-key")
+    .with_model("claude-sonnet-4-20250514");
+
+let mut engine = HealingEngine::new(provider)
+    .with_auto_apply(true)
+    .with_confidence_threshold(0.8);
+
+// Usar igual que con MockProvider
+let result = engine.heal_error(&error, &context).await?;
+```
+
 ### Self-Healing Engine
 
 ```rust
@@ -297,8 +318,8 @@ src/
 ✓ Hot Reload   - compute_diff, apply_diff
 ✓ REPL         - VM persistente, comandos
 
+✓ Claude API   - Integración con API de Anthropic
 ○ +db          - Pendiente (Fase 3)
-○ Claude API   - Pendiente (Fase 3)
 ○ Errores UI   - Pendiente (Fase 3)
 ```
 
@@ -306,7 +327,7 @@ src/
 
 ```bash
 cargo test
-# 103 tests pasando
+# 110 tests pasando (con --features claude-api)
 ```
 
 ## Documentación
