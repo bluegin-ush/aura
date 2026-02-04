@@ -59,6 +59,7 @@ mod bridge;
 mod healing;
 mod snapshot;
 mod undo;
+pub mod prompts;
 #[cfg(feature = "claude-api")]
 mod claude;
 #[cfg(feature = "ollama")]

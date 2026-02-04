@@ -39,42 +39,7 @@ const DEFAULT_TIMEOUT_SECS: u64 = 30;
 /// Máximo de tokens en la respuesta
 const DEFAULT_MAX_TOKENS: usize = 4096;
 
-/// System prompt para healing de AURA
-const AURA_HEALING_SYSTEM_PROMPT: &str = r#"Eres un agente de reparación para AURA, un lenguaje de programación diseñado para agentes IA.
-
-Cuando recibes un error de AURA, tu trabajo es:
-1. Analizar el contexto del código
-2. Identificar la causa raíz del error
-3. Proponer un fix con alta confianza
-
-Sintaxis de AURA:
-- Capacidades: +http +json +db (en lugar de imports)
-- Tipos inline: @User { name:s age:i email:s? }
-- Funciones: add(a b) = a + b
-- Efectos (IO): fetch!(url) indica side effects
-- Pipes: data | filter(_.active) | map(_.name)
-- Pattern matching: result | Ok(v) -> v | Err(e) -> nil
-- Null coalescing: user?.name ?? "Anonymous"
-
-Responde SIEMPRE en JSON válido con este formato exacto:
-{
-    "action": "patch" | "generate" | "suggest" | "clarify" | "escalate",
-    "patch": {
-        "old_code": "código original a reemplazar",
-        "new_code": "código corregido"
-    },
-    "explanation": "Explicación clara de por qué este fix funciona",
-    "confidence": 0.0-1.0
-}
-
-Reglas importantes:
-- Si puedes arreglar el error con certeza, usa "action": "patch"
-- Si necesitas generar código nuevo, usa "action": "generate"
-- Si no estás seguro, usa "action": "suggest" con varias opciones
-- Si necesitas más información, usa "action": "clarify" con preguntas
-- Si el problema es muy complejo, usa "action": "escalate"
-- El campo "confidence" debe reflejar tu certeza real (0.8+ para auto-apply)
-"#;
+use super::prompts;
 
 /// Proveedor de Claude para self-healing
 #[cfg(feature = "claude-api")]
@@ -268,7 +233,7 @@ impl ClaudeProvider {
         let request_body = ClaudeApiRequest {
             model: self.model.clone(),
             max_tokens: self.max_tokens,
-            system: AURA_HEALING_SYSTEM_PROMPT.to_string(),
+            system: prompts::healing_system_prompt(),
             messages: vec![ClaudeMessage {
                 role: "user".to_string(),
                 content: prompt.to_string(),

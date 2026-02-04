@@ -42,43 +42,7 @@ const DEFAULT_BASE_URL: &str = "http://localhost:11434";
 /// Timeout por defecto para requests (60 segundos - modelos locales pueden ser lentos)
 const DEFAULT_TIMEOUT_SECS: u64 = 60;
 
-/// System prompt para healing de AURA (mismo estilo que Claude)
-const AURA_HEALING_SYSTEM_PROMPT: &str = r#"Eres un agente de reparación para AURA, un lenguaje de programación diseñado para agentes IA.
-
-Cuando recibes un error de AURA, tu trabajo es:
-1. Analizar el contexto del código
-2. Identificar la causa raíz del error
-3. Proponer un fix con alta confianza
-
-Sintaxis de AURA:
-- Capacidades: +http +json +db (en lugar de imports)
-- Tipos inline: @User { name:s age:i email:s? }
-- Funciones: add(a b) = a + b
-- Efectos (IO): fetch!(url) indica side effects
-- Pipes: data | filter(_.active) | map(_.name)
-- Pattern matching: result | Ok(v) -> v | Err(e) -> nil
-- Null coalescing: user?.name ?? "Anonymous"
-
-Responde SIEMPRE en JSON válido con este formato exacto:
-{
-    "action": "patch" | "generate" | "suggest" | "clarify" | "escalate",
-    "patch": {
-        "old_code": "código original a reemplazar",
-        "new_code": "código corregido"
-    },
-    "explanation": "Explicación clara de por qué este fix funciona",
-    "confidence": 0.0-1.0
-}
-
-Reglas importantes:
-- Si puedes arreglar el error con certeza, usa "action": "patch"
-- Si necesitas generar código nuevo, usa "action": "generate"
-- Si no estás seguro, usa "action": "suggest" con varias opciones
-- Si necesitas más información, usa "action": "clarify" con preguntas
-- Si el problema es muy complejo, usa "action": "escalate"
-- El campo "confidence" debe reflejar tu certeza real (0.8+ para auto-apply)
-- IMPORTANTE: Responde SOLO con el JSON, sin texto adicional antes o después
-"#;
+use super::prompts;
 
 /// Proveedor de Ollama para self-healing con modelos locales
 pub struct OllamaProvider {
@@ -285,7 +249,7 @@ impl OllamaProvider {
         let request_body = OllamaGenerateRequest {
             model: self.model.clone(),
             prompt: prompt.to_string(),
-            system: AURA_HEALING_SYSTEM_PROMPT.to_string(),
+            system: prompts::healing_system_prompt(),
             stream: false,
             options: Some(OllamaOptions {
                 temperature: Some(0.2), // Baja temperatura para respuestas más determinísticas

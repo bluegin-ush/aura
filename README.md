@@ -387,10 +387,21 @@ src/
 
 ```bash
 cargo test
-# 155 tests pasando (con --features claude-api,ollama)
+# 159 tests pasando (con --features claude-api,ollama)
 ```
 
 ## Documentación
+
+### Para Agentes IA
+
+**[AGENT_GUIDE.md](AGENT_GUIDE.md)** - Guía completa para que agentes IA comprendan AURA:
+- Sintaxis completa y ejemplos
+- Sistema de capacidades
+- Catálogo de errores y fixes
+- Protocolo de healing
+- Patrones idiomáticos
+
+### Especificaciones
 
 Ver carpeta `req/` para especificaciones completas:
 
