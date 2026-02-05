@@ -13,6 +13,7 @@
 
 pub mod agent;
 pub mod caps;
+pub mod cli_output;
 pub mod error;
 pub mod lexer;
 pub mod parser;

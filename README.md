@@ -96,12 +96,24 @@ msg = "Hello {user.name}, you have {count} messages"
 ## Comandos CLI
 
 ```bash
-aura run <file>       # Ejecutar programa
-aura check <file>     # Verificar tipos
-aura parse <file>     # Ver AST (--json para JSON)
-aura lex <file>       # Ver tokens
-aura repl             # REPL interactivo
-aura info             # Info del runtime (--json)
+aura run <file>          # Ejecutar programa
+aura run <file> --json   # Ejecutar con output JSON (para agentes)
+aura check <file>        # Verificar tipos
+aura check <file> --json # Verificar con output JSON (para agentes)
+aura parse <file> --json # Ver AST en JSON
+aura lex <file> --json   # Ver tokens en JSON
+aura repl                # REPL interactivo
+aura info --json         # Info del runtime en JSON
+```
+
+### Output JSON para Agentes
+
+```bash
+$ aura run hello.aura --json
+{"success":true,"result":"Hello AURA!","type":"String","duration_ms":2}
+
+$ aura check broken.aura --json
+{"success":false,"file":"broken.aura","errors":[{"code":"E201","message":"Variable 'x' not defined","location":{"line":1,"col":1}}]}
 ```
 
 ## Capacidades Implementadas
@@ -127,19 +139,16 @@ let text = json_stringify(&value)?;
 ```rust
 use aura::caps::{db_connect, db_query, db_execute, db_close};
 
-// Conectar a SQLite
+// SQLite
 let conn = db_connect("sqlite:app.db")?;  // o ":memory:" para in-memory
-
-// Crear tabla
-db_execute(&conn, "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)", &[])?;
-
-// Insertar
 db_execute(&conn, "INSERT INTO users (name) VALUES (?)", &[Value::String("Alice".into())])?;
 
-// Consultar
-let users = db_query(&conn, "SELECT * FROM users", &[])?;
+// PostgreSQL
+let pg = db_connect("postgres://user:pass@localhost/mydb")?;
+db_execute(&pg, "INSERT INTO users (name) VALUES ($1)", &[Value::String("Alice".into())])?;
 
-// Cerrar conexión
+// Misma interfaz para ambos
+let users = db_query(&conn, "SELECT * FROM users", &[])?;
 db_close(&conn)?;
 ```
 
@@ -353,7 +362,7 @@ src/
 ├── caps/           # Capacidades
 │   ├── http.rs     # +http
 │   ├── json.rs     # +json
-│   └── db.rs       # +db (SQLite)
+│   └── db.rs       # +db (SQLite + PostgreSQL)
 ├── reload/         # Hot Reload
 │   ├── diff.rs     # compute_diff
 │   └── apply.rs    # apply_diff
@@ -379,7 +388,7 @@ src/
 
 ✓ Claude API   - Integración con API de Anthropic
 ✓ Ollama       - Soporte para modelos locales
-✓ +db          - SQLite con rusqlite
+✓ +db          - SQLite + PostgreSQL
 ✓ Errores UI   - Formateo con ariadne
 ```
 
@@ -387,7 +396,7 @@ src/
 
 ```bash
 cargo test
-# 159 tests pasando (con --features claude-api,ollama)
+# 182 tests pasando (173 lib + 9 integration)
 ```
 
 ## Documentación
