@@ -9,6 +9,7 @@ license = "MIT"
 default = []
 claude-api = []  # Habilita integración con Claude API
 ollama = []      # Habilita integración con Ollama (modelos locales)
+openai = []      # Habilita integración con OpenAI API (GPT-4, Azure OpenAI, compatible APIs)
 
 [dependencies]
 # Lexer - tokenización ultra rápida

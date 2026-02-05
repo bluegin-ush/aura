@@ -64,6 +64,8 @@ pub mod prompts;
 mod claude;
 #[cfg(feature = "ollama")]
 mod ollama;
+#[cfg(feature = "openai")]
+mod openai;
 
 pub use request::{AgentRequest, EventType, Context, SourceLocation, Constraints};
 pub use response::{AgentResponse, Action, Patch, Suggestion};
@@ -76,3 +78,5 @@ pub use undo::{UndoManager, UndoError, HealingAction, VerificationResult, UndoRe
 pub use claude::ClaudeProvider;
 #[cfg(feature = "ollama")]
 pub use ollama::OllamaProvider;
+#[cfg(feature = "openai")]
+pub use openai::OpenAIProvider;

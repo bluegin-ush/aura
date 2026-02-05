@@ -64,6 +64,69 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+
+    /// Revert the last healing action
+    Undo {
+        /// List undo history instead of reverting
+        #[arg(long)]
+        list: bool,
+
+        /// Revert to a specific snapshot ID
+        #[arg(long)]
+        to: Option<String>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Manage snapshots
+    Snapshots {
+        #[command(subcommand)]
+        action: Option<SnapshotsAction>,
+
+        /// Output as JSON
+        #[arg(long, global = true)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum SnapshotsAction {
+    /// Create a manual snapshot
+    Create {
+        /// Description for the snapshot
+        #[arg(short, long)]
+        description: Option<String>,
+
+        /// Files to include in snapshot (defaults to current directory .aura files)
+        files: Vec<PathBuf>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Restore a specific snapshot
+    Restore {
+        /// Snapshot ID to restore
+        id: String,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Remove old snapshots
+    Prune {
+        /// Number of snapshots to keep (default: 10)
+        #[arg(short, long, default_value = "10")]
+        keep: usize,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 fn main() {
@@ -87,6 +150,12 @@ fn main() {
         }
         Commands::Info { json } => {
             show_info(json);
+        }
+        Commands::Undo { list, to, json } => {
+            handle_undo(list, to, json);
+        }
+        Commands::Snapshots { action, json } => {
+            handle_snapshots(action, json);
         }
     }
 }
@@ -525,5 +594,582 @@ fn show_info(json: bool) {
         println!("  - Agent bridge");
         println!("  - Errores JSON");
         println!("  - Parseo incremental");
+    }
+}
+
+/// Storage module for persisting snapshots and undo state
+mod storage {
+    use std::path::PathBuf;
+    use std::fs;
+    use serde::{Deserialize, Serialize};
+
+    const AURA_DIR: &str = ".aura";
+    const SNAPSHOTS_DIR: &str = "snapshots";
+    const UNDO_STATE_FILE: &str = "undo_state.json";
+
+    /// Get the .aura directory path (creates if doesn't exist)
+    pub fn get_aura_dir() -> std::io::Result<PathBuf> {
+        let path = PathBuf::from(AURA_DIR);
+        if !path.exists() {
+            fs::create_dir_all(&path)?;
+        }
+        Ok(path)
+    }
+
+    /// Get the snapshots directory path (creates if doesn't exist)
+    pub fn get_snapshots_dir() -> std::io::Result<PathBuf> {
+        let path = get_aura_dir()?.join(SNAPSHOTS_DIR);
+        if !path.exists() {
+            fs::create_dir_all(&path)?;
+        }
+        Ok(path)
+    }
+
+    /// Persisted undo state
+    #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+    pub struct PersistedUndoState {
+        pub actions: Vec<PersistedHealingAction>,
+        pub current_position: usize,
+    }
+
+    /// Persisted healing action
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct PersistedHealingAction {
+        pub snapshot_id: String,
+        pub timestamp: u64,
+        pub file_path: String,
+        pub old_code: String,
+        pub new_code: String,
+        pub confidence: f32,
+    }
+
+    /// Persisted snapshot
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct PersistedSnapshot {
+        pub id: String,
+        pub timestamp: u64,
+        pub reason: String,
+        pub files: Vec<PersistedFileSnapshot>,
+    }
+
+    /// Persisted file snapshot
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct PersistedFileSnapshot {
+        pub path: String,
+        pub content: String,
+        pub hash: String,
+    }
+
+    /// Load undo state from disk
+    pub fn load_undo_state() -> std::io::Result<PersistedUndoState> {
+        let path = get_aura_dir()?.join(UNDO_STATE_FILE);
+        if !path.exists() {
+            return Ok(PersistedUndoState::default());
+        }
+        let content = fs::read_to_string(&path)?;
+        serde_json::from_str(&content).map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
+        })
+    }
+
+    /// Save undo state to disk
+    pub fn save_undo_state(state: &PersistedUndoState) -> std::io::Result<()> {
+        let path = get_aura_dir()?.join(UNDO_STATE_FILE);
+        let content = serde_json::to_string_pretty(state).map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
+        })?;
+        fs::write(&path, content)
+    }
+
+    /// Get snapshot file path
+    fn snapshot_path(id: &str) -> std::io::Result<PathBuf> {
+        Ok(get_snapshots_dir()?.join(format!("{}.json", id)))
+    }
+
+    /// Load a snapshot from disk
+    pub fn load_snapshot(id: &str) -> std::io::Result<PersistedSnapshot> {
+        let path = snapshot_path(id)?;
+        let content = fs::read_to_string(&path)?;
+        serde_json::from_str(&content).map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
+        })
+    }
+
+    /// Save a snapshot to disk
+    pub fn save_snapshot(snapshot: &PersistedSnapshot) -> std::io::Result<()> {
+        let path = snapshot_path(&snapshot.id)?;
+        let content = serde_json::to_string_pretty(snapshot).map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
+        })?;
+        fs::write(&path, content)
+    }
+
+    /// Delete a snapshot from disk
+    pub fn delete_snapshot(id: &str) -> std::io::Result<()> {
+        let path = snapshot_path(id)?;
+        if path.exists() {
+            fs::remove_file(&path)?;
+        }
+        Ok(())
+    }
+
+    /// List all snapshot IDs from disk
+    pub fn list_snapshot_ids() -> std::io::Result<Vec<String>> {
+        let dir = get_snapshots_dir()?;
+        let mut ids = Vec::new();
+
+        for entry in fs::read_dir(&dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.extension().map(|e| e == "json").unwrap_or(false) {
+                if let Some(stem) = path.file_stem() {
+                    if let Some(s) = stem.to_str() {
+                        ids.push(s.to_string());
+                    }
+                }
+            }
+        }
+
+        Ok(ids)
+    }
+
+    /// List all snapshots from disk
+    pub fn list_snapshots() -> std::io::Result<Vec<PersistedSnapshot>> {
+        let ids = list_snapshot_ids()?;
+        let mut snapshots = Vec::new();
+
+        for id in ids {
+            if let Ok(snap) = load_snapshot(&id) {
+                snapshots.push(snap);
+            }
+        }
+
+        // Sort by timestamp (newest first)
+        snapshots.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        Ok(snapshots)
+    }
+}
+
+fn handle_undo(list: bool, to: Option<String>, json_output: bool) {
+    use aura::cli_output::{UndoListResult, UndoActionInfo, UndoResult};
+
+    if list {
+        // List undo history
+        match storage::load_undo_state() {
+            Ok(state) => {
+                let actions: Vec<UndoActionInfo> = state.actions
+                    .iter()
+                    .take(state.current_position)
+                    .map(|a| UndoActionInfo {
+                        id: a.snapshot_id.clone(),
+                        timestamp: a.timestamp,
+                        file: a.file_path.clone(),
+                        patch: a.new_code.clone(),
+                        confidence: a.confidence,
+                    })
+                    .collect();
+
+                if json_output {
+                    let result = UndoListResult::success(actions);
+                    println!("{}", result.to_json());
+                } else {
+                    if actions.is_empty() {
+                        println!("No actions in undo history");
+                    } else {
+                        println!("Undo history ({} actions):", actions.len());
+                        for action in actions.iter().rev() {
+                            println!();
+                            println!("  ID: {}", action.id);
+                            println!("  File: {}", action.file);
+                            println!("  Confidence: {:.0}%", action.confidence * 100.0);
+                            println!("  Patch: {}", truncate_str(&action.patch, 50));
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                if json_output {
+                    let result = UndoListResult::failure(e.to_string());
+                    println!("{}", result.to_json());
+                } else {
+                    eprintln!("Error loading undo state: {}", e);
+                }
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
+    // Perform undo
+    match storage::load_undo_state() {
+        Ok(mut state) => {
+            if state.current_position == 0 {
+                if json_output {
+                    let result = UndoResult::failure("Nothing to undo");
+                    println!("{}", result.to_json());
+                } else {
+                    eprintln!("Nothing to undo");
+                }
+                std::process::exit(1);
+            }
+
+            // Determine which action to undo
+            let target_idx = if let Some(ref id) = to {
+                // Find the action by snapshot ID
+                state.actions
+                    .iter()
+                    .take(state.current_position)
+                    .position(|a| a.snapshot_id == *id)
+            } else {
+                // Undo the last action
+                Some(state.current_position - 1)
+            };
+
+            match target_idx {
+                Some(idx) => {
+                    let action = &state.actions[idx];
+                    let snapshot_id = action.snapshot_id.clone();
+
+                    // Load the snapshot
+                    match storage::load_snapshot(&snapshot_id) {
+                        Ok(snapshot) => {
+                            let mut restored_files = Vec::new();
+                            let mut errors = Vec::new();
+
+                            // Restore each file
+                            for file_snap in &snapshot.files {
+                                let path = PathBuf::from(&file_snap.path);
+                                match std::fs::write(&path, &file_snap.content) {
+                                    Ok(_) => restored_files.push(file_snap.path.clone()),
+                                    Err(e) => errors.push((file_snap.path.clone(), e.to_string())),
+                                }
+                            }
+
+                            // Update state - revert to position before this action
+                            state.current_position = idx;
+                            if let Err(e) = storage::save_undo_state(&state) {
+                                if json_output {
+                                    let result = UndoResult::failure(format!("Failed to save state: {}", e));
+                                    println!("{}", result.to_json());
+                                } else {
+                                    eprintln!("Warning: Failed to save undo state: {}", e);
+                                }
+                            }
+
+                            if json_output {
+                                let result = UndoResult::success(snapshot_id, restored_files);
+                                println!("{}", result.to_json());
+                            } else {
+                                if errors.is_empty() {
+                                    println!("Successfully reverted to snapshot: {}", snapshot.id);
+                                    for file in &restored_files {
+                                        println!("  Restored: {}", file);
+                                    }
+                                } else {
+                                    println!("Partially reverted to snapshot: {}", snapshot.id);
+                                    for file in &restored_files {
+                                        println!("  Restored: {}", file);
+                                    }
+                                    for (file, err) in &errors {
+                                        eprintln!("  Failed: {} ({})", file, err);
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            if json_output {
+                                let result = UndoResult::failure(format!("Snapshot not found: {}", e));
+                                println!("{}", result.to_json());
+                            } else {
+                                eprintln!("Error loading snapshot: {}", e);
+                            }
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                None => {
+                    if json_output {
+                        let result = UndoResult::failure(format!("Snapshot not found: {}", to.unwrap_or_default()));
+                        println!("{}", result.to_json());
+                    } else {
+                        eprintln!("Snapshot not found: {}", to.unwrap_or_default());
+                    }
+                    std::process::exit(1);
+                }
+            }
+        }
+        Err(e) => {
+            if json_output {
+                let result = UndoResult::failure(e.to_string());
+                println!("{}", result.to_json());
+            } else {
+                eprintln!("Error loading undo state: {}", e);
+            }
+            std::process::exit(1);
+        }
+    }
+}
+
+fn handle_snapshots(action: Option<SnapshotsAction>, parent_json: bool) {
+    use aura::cli_output::{
+        SnapshotsListResult, SnapshotInfo, SnapshotCreateResult,
+        SnapshotRestoreResult, SnapshotRestoreFailure, SnapshotPruneResult,
+    };
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    match action {
+        None => {
+            // List all snapshots (use parent_json for the list command)
+            let json_output = parent_json;
+
+            match storage::list_snapshots() {
+                Ok(snapshots) => {
+                    let infos: Vec<SnapshotInfo> = snapshots
+                        .iter()
+                        .map(|s| SnapshotInfo {
+                            id: s.id.clone(),
+                            timestamp: s.timestamp,
+                            reason: s.reason.clone(),
+                            files: s.files.iter().map(|f| f.path.clone()).collect(),
+                        })
+                        .collect();
+
+                    if json_output {
+                        let result = SnapshotsListResult::success(infos);
+                        println!("{}", result.to_json());
+                    } else {
+                        if infos.is_empty() {
+                            println!("No snapshots found");
+                        } else {
+                            println!("Snapshots ({}):", infos.len());
+                            for info in &infos {
+                                println!();
+                                println!("  ID: {}", info.id);
+                                println!("  Reason: {}", info.reason);
+                                println!("  Files: {}", info.files.join(", "));
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    if json_output {
+                        let result = SnapshotsListResult::failure(e.to_string());
+                        println!("{}", result.to_json());
+                    } else {
+                        eprintln!("Error listing snapshots: {}", e);
+                    }
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        Some(SnapshotsAction::Create { description, files, json }) => {
+            let json_output = json || parent_json;
+            let timestamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+
+            let id = format!("snap_{}", SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos());
+
+            let reason = description.unwrap_or_else(|| "Manual snapshot".to_string());
+
+            // Determine files to snapshot
+            let files_to_snap: Vec<PathBuf> = if files.is_empty() {
+                // Default: find all .aura files in current directory
+                match std::fs::read_dir(".") {
+                    Ok(entries) => entries
+                        .filter_map(|e| e.ok())
+                        .map(|e| e.path())
+                        .filter(|p| p.extension().map(|e| e == "aura").unwrap_or(false))
+                        .collect(),
+                    Err(_) => Vec::new(),
+                }
+            } else {
+                files
+            };
+
+            if files_to_snap.is_empty() {
+                if json_output {
+                    let result = SnapshotCreateResult::failure("No files to snapshot");
+                    println!("{}", result.to_json());
+                } else {
+                    eprintln!("No files to snapshot");
+                }
+                std::process::exit(1);
+            }
+
+            // Read file contents
+            let mut file_snapshots = Vec::new();
+            let mut file_names = Vec::new();
+            for path in &files_to_snap {
+                match std::fs::read_to_string(path) {
+                    Ok(content) => {
+                        let path_str = path.display().to_string();
+                        file_names.push(path_str.clone());
+
+                        // Compute simple hash
+                        let mut hash: u64 = 0;
+                        for byte in content.bytes() {
+                            hash = hash.wrapping_mul(31).wrapping_add(byte as u64);
+                        }
+
+                        file_snapshots.push(storage::PersistedFileSnapshot {
+                            path: path_str,
+                            content,
+                            hash: format!("{:016x}", hash),
+                        });
+                    }
+                    Err(e) => {
+                        if json_output {
+                            let result = SnapshotCreateResult::failure(
+                                format!("Failed to read {}: {}", path.display(), e)
+                            );
+                            println!("{}", result.to_json());
+                        } else {
+                            eprintln!("Failed to read {}: {}", path.display(), e);
+                        }
+                        std::process::exit(1);
+                    }
+                }
+            }
+
+            let snapshot = storage::PersistedSnapshot {
+                id: id.clone(),
+                timestamp,
+                reason: reason.clone(),
+                files: file_snapshots,
+            };
+
+            match storage::save_snapshot(&snapshot) {
+                Ok(_) => {
+                    if json_output {
+                        let result = SnapshotCreateResult::success(&id, timestamp, file_names);
+                        println!("{}", result.to_json());
+                    } else {
+                        println!("Created snapshot: {}", id);
+                        println!("  Reason: {}", reason);
+                        println!("  Files: {}", file_names.join(", "));
+                    }
+                }
+                Err(e) => {
+                    if json_output {
+                        let result = SnapshotCreateResult::failure(e.to_string());
+                        println!("{}", result.to_json());
+                    } else {
+                        eprintln!("Failed to save snapshot: {}", e);
+                    }
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        Some(SnapshotsAction::Restore { id, json }) => {
+            let json_output = json || parent_json;
+
+            match storage::load_snapshot(&id) {
+                Ok(snapshot) => {
+                    let mut restored = Vec::new();
+                    let mut failed = Vec::new();
+
+                    for file_snap in &snapshot.files {
+                        let path = PathBuf::from(&file_snap.path);
+                        match std::fs::write(&path, &file_snap.content) {
+                            Ok(_) => restored.push(file_snap.path.clone()),
+                            Err(e) => failed.push(SnapshotRestoreFailure {
+                                file: file_snap.path.clone(),
+                                reason: e.to_string(),
+                            }),
+                        }
+                    }
+
+                    if json_output {
+                        let result = SnapshotRestoreResult::success(&id, restored.clone(), failed.clone());
+                        println!("{}", result.to_json());
+                    } else {
+                        if failed.is_empty() {
+                            println!("Restored snapshot: {}", id);
+                            for file in &restored {
+                                println!("  Restored: {}", file);
+                            }
+                        } else {
+                            println!("Partially restored snapshot: {}", id);
+                            for file in &restored {
+                                println!("  Restored: {}", file);
+                            }
+                            for fail in &failed {
+                                eprintln!("  Failed: {} ({})", fail.file, fail.reason);
+                            }
+                        }
+                    }
+
+                    if !failed.is_empty() {
+                        std::process::exit(1);
+                    }
+                }
+                Err(e) => {
+                    if json_output {
+                        let result = SnapshotRestoreResult::failure(format!("Snapshot not found: {}", e));
+                        println!("{}", result.to_json());
+                    } else {
+                        eprintln!("Error loading snapshot: {}", e);
+                    }
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        Some(SnapshotsAction::Prune { keep, json }) => {
+            let json_output = json || parent_json;
+
+            match storage::list_snapshots() {
+                Ok(snapshots) => {
+                    let total = snapshots.len();
+
+                    // Remove oldest snapshots (they are sorted newest first)
+                    let mut removed = 0;
+                    for snapshot in snapshots.iter().skip(keep) {
+                        if let Err(e) = storage::delete_snapshot(&snapshot.id) {
+                            if !json_output {
+                                eprintln!("Warning: Failed to delete {}: {}", snapshot.id, e);
+                            }
+                        } else {
+                            removed += 1;
+                        }
+                    }
+
+                    let remaining = total - removed;
+
+                    if json_output {
+                        let result = SnapshotPruneResult::success(removed, remaining);
+                        println!("{}", result.to_json());
+                    } else {
+                        println!("Pruned {} snapshots, {} remaining", removed, remaining);
+                    }
+                }
+                Err(e) => {
+                    if json_output {
+                        let result = SnapshotPruneResult::failure(e.to_string());
+                        println!("{}", result.to_json());
+                    } else {
+                        eprintln!("Error listing snapshots: {}", e);
+                    }
+                    std::process::exit(1);
+                }
+            }
+        }
+    }
+}
+
+/// Truncate a string for display
+fn truncate_str(s: &str, max_len: usize) -> String {
+    let s = s.replace('\n', " ").replace('\r', "");
+    if s.len() > max_len {
+        format!("{}...", &s[..max_len])
+    } else {
+        s
     }
 }

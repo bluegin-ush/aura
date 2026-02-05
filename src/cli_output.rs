@@ -235,6 +235,248 @@ pub fn value_to_json(value: &crate::vm::Value) -> (serde_json::Value, String) {
     }
 }
 
+/// Result of `aura undo --list` command
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UndoListResult {
+    pub success: bool,
+    pub actions: Vec<UndoActionInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Information about an undoable action
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UndoActionInfo {
+    pub id: String,
+    pub timestamp: u64,
+    pub file: String,
+    pub patch: String,
+    pub confidence: f32,
+}
+
+impl UndoListResult {
+    pub fn success(actions: Vec<UndoActionInfo>) -> Self {
+        Self {
+            success: true,
+            actions,
+            error: None,
+        }
+    }
+
+    pub fn failure(error: impl Into<String>) -> Self {
+        Self {
+            success: false,
+            actions: Vec::new(),
+            error: Some(error.into()),
+        }
+    }
+
+    pub fn to_json(&self) -> String {
+        serde_json::to_string_pretty(self).unwrap_or_default()
+    }
+}
+
+/// Result of `aura undo` command (reverting)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UndoResult {
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub restored_snapshot: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub files_restored: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl UndoResult {
+    pub fn success(snapshot_id: impl Into<String>, files: Vec<String>) -> Self {
+        Self {
+            success: true,
+            restored_snapshot: Some(snapshot_id.into()),
+            files_restored: files,
+            error: None,
+        }
+    }
+
+    pub fn failure(error: impl Into<String>) -> Self {
+        Self {
+            success: false,
+            restored_snapshot: None,
+            files_restored: Vec::new(),
+            error: Some(error.into()),
+        }
+    }
+
+    pub fn to_json(&self) -> String {
+        serde_json::to_string_pretty(self).unwrap_or_default()
+    }
+}
+
+/// Result of `aura snapshots` command
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SnapshotsListResult {
+    pub success: bool,
+    pub snapshots: Vec<SnapshotInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Information about a snapshot
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SnapshotInfo {
+    pub id: String,
+    pub timestamp: u64,
+    pub reason: String,
+    pub files: Vec<String>,
+}
+
+impl SnapshotsListResult {
+    pub fn success(snapshots: Vec<SnapshotInfo>) -> Self {
+        Self {
+            success: true,
+            snapshots,
+            error: None,
+        }
+    }
+
+    pub fn failure(error: impl Into<String>) -> Self {
+        Self {
+            success: false,
+            snapshots: Vec::new(),
+            error: Some(error.into()),
+        }
+    }
+
+    pub fn to_json(&self) -> String {
+        serde_json::to_string_pretty(self).unwrap_or_default()
+    }
+}
+
+/// Result of `aura snapshots create` command
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SnapshotCreateResult {
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<u64>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl SnapshotCreateResult {
+    pub fn success(id: impl Into<String>, timestamp: u64, files: Vec<String>) -> Self {
+        Self {
+            success: true,
+            id: Some(id.into()),
+            timestamp: Some(timestamp),
+            files,
+            error: None,
+        }
+    }
+
+    pub fn failure(error: impl Into<String>) -> Self {
+        Self {
+            success: false,
+            id: None,
+            timestamp: None,
+            files: Vec::new(),
+            error: Some(error.into()),
+        }
+    }
+
+    pub fn to_json(&self) -> String {
+        serde_json::to_string_pretty(self).unwrap_or_default()
+    }
+}
+
+/// Result of `aura snapshots restore` command
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SnapshotRestoreResult {
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub restored_snapshot: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub files_restored: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub files_failed: Vec<SnapshotRestoreFailure>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Information about a failed file restore
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SnapshotRestoreFailure {
+    pub file: String,
+    pub reason: String,
+}
+
+impl SnapshotRestoreResult {
+    pub fn success(
+        snapshot_id: impl Into<String>,
+        files_restored: Vec<String>,
+        files_failed: Vec<SnapshotRestoreFailure>,
+    ) -> Self {
+        Self {
+            success: files_failed.is_empty(),
+            restored_snapshot: Some(snapshot_id.into()),
+            files_restored,
+            files_failed,
+            error: None,
+        }
+    }
+
+    pub fn failure(error: impl Into<String>) -> Self {
+        Self {
+            success: false,
+            restored_snapshot: None,
+            files_restored: Vec::new(),
+            files_failed: Vec::new(),
+            error: Some(error.into()),
+        }
+    }
+
+    pub fn to_json(&self) -> String {
+        serde_json::to_string_pretty(self).unwrap_or_default()
+    }
+}
+
+/// Result of `aura snapshots prune` command
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SnapshotPruneResult {
+    pub success: bool,
+    pub removed_count: usize,
+    pub remaining_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl SnapshotPruneResult {
+    pub fn success(removed: usize, remaining: usize) -> Self {
+        Self {
+            success: true,
+            removed_count: removed,
+            remaining_count: remaining,
+            error: None,
+        }
+    }
+
+    pub fn failure(error: impl Into<String>) -> Self {
+        Self {
+            success: false,
+            removed_count: 0,
+            remaining_count: 0,
+            error: Some(error.into()),
+        }
+    }
+
+    pub fn to_json(&self) -> String {
+        serde_json::to_string_pretty(self).unwrap_or_default()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -96,14 +96,28 @@ msg = "Hello {user.name}, you have {count} messages"
 ## Comandos CLI
 
 ```bash
+# Ejecución
 aura run <file>          # Ejecutar programa
-aura run <file> --json   # Ejecutar con output JSON (para agentes)
+aura run <file> --json   # Output JSON para agentes
 aura check <file>        # Verificar tipos
-aura check <file> --json # Verificar con output JSON (para agentes)
-aura parse <file> --json # Ver AST en JSON
-aura lex <file> --json   # Ver tokens en JSON
+aura check <file> --json # Output JSON para agentes
+
+# Análisis
+aura parse <file> --json # AST en JSON
+aura lex <file> --json   # Tokens en JSON
+aura info --json         # Info del runtime
+
+# Snapshots y Undo (para self-healing)
+aura undo                # Revertir último fix
+aura undo --list         # Ver historial de fixes
+aura undo --to <id>      # Revertir a snapshot específico
+aura snapshots           # Listar snapshots
+aura snapshots create    # Crear snapshot manual
+aura snapshots restore <id>  # Restaurar snapshot
+aura snapshots prune     # Limpiar snapshots antiguos
+
+# REPL
 aura repl                # REPL interactivo
-aura info --json         # Info del runtime en JSON
 ```
 
 ### Output JSON para Agentes
@@ -205,13 +219,24 @@ let provider = OllamaProvider::new()
     .with_model("llama3.2")
     .with_base_url("http://localhost:11434");
 
-let mut engine = HealingEngine::new(provider)
-    .with_auto_apply(true);
+let engine = HealingEngine::new(provider);
+```
 
-// Verificar disponibilidad
-if provider.is_available().await {
-    let result = engine.heal_error(&error, &context).await?;
-}
+#### OpenAI / Azure OpenAI
+```rust
+// cargo build --features openai
+use aura::agent::{OpenAIProvider, HealingEngine};
+
+// OpenAI
+let provider = OpenAIProvider::new("sk-...")
+    .with_model("gpt-4");
+
+// Azure OpenAI
+let azure = OpenAIProvider::new("azure-key")
+    .with_base_url("https://myresource.openai.azure.com/openai/deployments/gpt4")
+    .with_api_version("2024-02-15-preview");
+
+let engine = HealingEngine::new(provider);
 ```
 
 ### Self-Healing Engine
@@ -388,6 +413,7 @@ src/
 
 ✓ Claude API   - Integración con API de Anthropic
 ✓ Ollama       - Soporte para modelos locales
+✓ OpenAI       - GPT-4, Azure OpenAI, APIs compatibles
 ✓ +db          - SQLite + PostgreSQL
 ✓ Errores UI   - Formateo con ariadne
 ```
@@ -396,7 +422,7 @@ src/
 
 ```bash
 cargo test
-# 182 tests pasando (173 lib + 9 integration)
+# 217 tests pasando (195 lib + 22 integration)
 ```
 
 ## Documentación
