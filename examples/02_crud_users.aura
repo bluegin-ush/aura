@@ -1,0 +1,27 @@
++db +json
+
+# CRUD completo de usuarios con SQLite
+
+# Inicializar base de datos
+init_db(conn) = db.execute(conn, "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT, email TEXT, active INTEGER)")
+
+# CREATE - Crear usuario
+create_user(conn, name, email) = db.execute(conn, "INSERT INTO users (name, email, active) VALUES (?, ?, 1)", [name, email])
+
+# READ - Obtener todos los usuarios
+get_users(conn) = db.query(conn, "SELECT * FROM users", [])
+
+# READ - Obtener usuario por ID
+get_user(conn, id) = db.query(conn, "SELECT * FROM users WHERE id = ?", [id])
+
+# UPDATE - Actualizar usuario
+update_user(conn, id, name, email) = db.execute(conn, "UPDATE users SET name = ?, email = ? WHERE id = ?", [name, email, id])
+
+# DELETE - Eliminar usuario
+delete_user(conn, id) = db.execute(conn, "DELETE FROM users WHERE id = ?", [id])
+
+# Contar usuarios activos
+count_active(conn) = : result = db.query(conn, "SELECT COUNT(*) as count FROM users WHERE active = 1", []); first(result)
+
+# Main: demo del CRUD
+main = : conn = db.connect("sqlite::memory:"); init_db(conn); create_user(conn, "Alice", "alice@example.com"); create_user(conn, "Bob", "bob@example.com"); users = get_users(conn); db.close(conn); users

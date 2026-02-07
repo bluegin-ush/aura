@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use crate::parser::{Program, Definition, Expr, BinaryOp, UnaryOp, FuncDef, TypeDef};
 use crate::caps::http::{http_get, http_post, http_put, http_delete};
+use crate::caps::db::{db_connect, db_query, db_execute, db_close};
 
 /// Convierte serde_json::Value a Value de AURA
 fn json_to_value(json: serde_json::Value) -> Value {
@@ -444,6 +445,7 @@ impl VM {
                     "http" => return self.call_http_method(method, args),
                     "json" => return self.call_json_method(method, args),
                     "math" => return self.call_math_method(method, args),
+                    "db" => return self.call_db_method(method, args),
                     _ => {}
                 }
             }
@@ -606,6 +608,55 @@ impl VM {
                 }
             }
             _ => Err(RuntimeError::new(format!("Método math no soportado: {}", method))),
+        }
+    }
+
+    /// Llama a un método DB (db.connect, db.query, db.execute, db.close)
+    fn call_db_method(&mut self, method: &str, args: &[Expr]) -> Result<Value, RuntimeError> {
+        let arg_values: Result<Vec<_>, _> = args.iter()
+            .map(|a| self.eval(a))
+            .collect();
+        let arg_values = arg_values?;
+
+        match method {
+            "connect" => {
+                match arg_values.first() {
+                    Some(Value::String(url)) => db_connect(url),
+                    _ => Err(RuntimeError::new("db.connect requiere URL como string")),
+                }
+            }
+            "query" => {
+                match (arg_values.get(0), arg_values.get(1), arg_values.get(2)) {
+                    (Some(conn), Some(Value::String(sql)), Some(Value::List(params))) => {
+                        db_query(conn, sql, params)
+                    }
+                    (Some(conn), Some(Value::String(sql)), None) => {
+                        db_query(conn, sql, &[])
+                    }
+                    _ => Err(RuntimeError::new("db.query requiere (conexión, sql, params)")),
+                }
+            }
+            "execute" => {
+                match (arg_values.get(0), arg_values.get(1), arg_values.get(2)) {
+                    (Some(conn), Some(Value::String(sql)), Some(Value::List(params))) => {
+                        db_execute(conn, sql, params)
+                    }
+                    (Some(conn), Some(Value::String(sql)), None) => {
+                        db_execute(conn, sql, &[])
+                    }
+                    _ => Err(RuntimeError::new("db.execute requiere (conexión, sql, params)")),
+                }
+            }
+            "close" => {
+                match arg_values.first() {
+                    Some(conn) => {
+                        db_close(conn)?;
+                        Ok(Value::Nil)
+                    }
+                    _ => Err(RuntimeError::new("db.close requiere conexión")),
+                }
+            }
+            _ => Err(RuntimeError::new(format!("Método db no soportado: {}", method))),
         }
     }
 

@@ -1,0 +1,13 @@
++http +json
+
+# Obtener un usuario por ID
+get_user(id) = : url = "https://jsonplaceholder.typicode.com/users/{id}"; response = http.get(url); json.parse(response.body)
+
+# Obtener posts de un usuario
+get_user_posts(user_id) = : url = "https://jsonplaceholder.typicode.com/users/{user_id}/posts"; response = http.get(url); json.parse(response.body)
+
+# Formatear info de usuario
+format_user(user) = "User: {user.name} - {user.email}"
+
+# Main: obtener usuario 1 y mostrar info
+main = : user = get_user(1); format_user(user)

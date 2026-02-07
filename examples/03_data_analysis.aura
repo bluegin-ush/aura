@@ -1,0 +1,10 @@
++http +json
+
+# Análisis de datos - Estadísticas de posts y usuarios
+
+# Obtener datos de la API
+fetch_posts = : r = http.get("https://jsonplaceholder.typicode.com/posts"); json.parse(r.body)
+fetch_users = : r = http.get("https://jsonplaceholder.typicode.com/users"); json.parse(r.body)
+
+# Generar reporte
+main = : posts = fetch_posts(); users = fetch_users(); tp = len(posts); tu = len(users); avg = tp / tu; "Reporte: {tp} posts, {tu} usuarios, promedio {avg} posts/usuario"
