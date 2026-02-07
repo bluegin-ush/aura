@@ -7,190 +7,131 @@
 
 ---
 
-## La Revolución
+## Tres Virtudes
 
-Cuando un agente IA usa Python, JavaScript o cualquier lenguaje tradicional:
-
-```
-📊 Tokens consumidos por tarea simple: ~2000
-💰 Costo por operación CRUD: $0.02
-🔄 Archivos que debe leer: 6-8
-❌ Tasa de error en código generado: ~15%
-```
-
-Con AURA:
+### 1. 40x Menos Tokens
 
 ```
-📊 Tokens consumidos: ~50
-💰 Costo por operación: $0.0005
-🔄 Archivos necesarios: 1
-✅ Tasa de error: ~2% (+ self-healing)
+    Python   ████████████████████████████ 2000 tokens
+    AURA     ██ 50 tokens
 ```
 
-**40x menos tokens. 40x menos costo. 40x más eficiente.**
+Un agente IA consume 40 veces menos tokens escribiendo AURA que Python.
+Menos tokens = menos costo = más operaciones por dólar.
 
----
-
-## Comparación Visual
-
-```
-                    TOKENS POR TAREA
-    ┌─────────────────────────────────────────────┐
-    │                                             │
-    │  Python   ████████████████████████████ 2000 │
-    │                                             │
-    │  AURA     ██ 50                             │
-    │                                             │
-    └─────────────────────────────────────────────┘
-
-                  LÍNEAS DE CÓDIGO
-    ┌─────────────────────────────────────────────┐
-    │                                             │
-    │  API Client                                 │
-    │    Python ████████████████████████████  25  │
-    │    AURA   ████  4                           │
-    │                                             │
-    │  CRUD Database                              │
-    │    Python ████████████████████████████  65  │
-    │    AURA   ████████  8                       │
-    │                                             │
-    │  Data Analysis                              │
-    │    Python ████████████████████████████  35  │
-    │    AURA   ████  4                           │
-    │                                             │
-    └─────────────────────────────────────────────┘
-
-              REDUCCIÓN PROMEDIO: 86%
-```
-
----
-
-## Ejemplos Reales Funcionando
-
-### 📡 API Client (4 líneas)
-```ruby
-+http +json
-
-get_user(id) = : url = "https://api.com/users/{id}"; r = http.get(url); json.parse(r.body)
-format_user(user) = "User: {user.name} - {user.email}"
-main = : user = get_user(1); format_user(user)
-```
-```
-$ aura run api_client.aura
-User: Leanne Graham - Sincere@april.biz
-```
-
-### 🗄️ CRUD Database (8 líneas)
-```ruby
-+db
-
-init(c) = db.execute(c, "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT)")
-create(c, name, email) = db.execute(c, "INSERT INTO users (name, email) VALUES (?, ?)", [name, email])
-get_all(c) = db.query(c, "SELECT * FROM users", [])
-
-main = : c = db.connect("sqlite::memory:"); init(c); create(c, "Alice", "alice@test.com"); get_all(c)
-```
-```
-$ aura run crud.aura
-[{id:1 name:Alice email:alice@test.com}]
-```
-
-### 📊 Data Analysis (4 líneas)
-```ruby
-+http +json
-
-fetch_data = : r = http.get("https://api.com/posts"); json.parse(r.body)
-main = : posts = fetch_data(); total = len(posts); "Total: {total} posts"
-```
-```
-$ aura run analysis.aura
-Total: 100 posts
-```
-
-**[→ Ver todos los ejemplos con comparación Python](examples/README.md)**
-
----
-
-## Sintaxis Mínima, Máximo Poder
-
-### Todo es una Función
-```ruby
-x = 42              # Define función x() que retorna 42
-double(n) = n * 2   # Define función con parámetro
-main = double(x())  # 84
-```
-
-### Capacidades, no Imports
-```ruby
-+http +json +db     # Una línea habilita todo
-```
-
-### Bloques con Valores Intermedios
-```ruby
-process(x) = : a = x * 2; b = a + 10; b
-```
-
-### Pipes Funcionales
-```ruby
-result = data |> transform |> filter |> save
-```
-
-### Condicionales Expresivos
-```ruby
-abs(n) = if n < 0 (-n) else n
-```
-
-### Interpolación Inteligente
-```ruby
-msg = "Hola {user.name}, tienes {count} mensajes"
-```
-
----
-
-## Instalación
+### 2. Self-Healing: Se Repara Solo
 
 ```bash
-git clone https://github.com/bluegin-ush/aura
-cd aura
+$ aura heal broken.aura
+
+═══════════════════════════════════════════════════════════════
+   AURA Self-Healing Demo
+═══════════════════════════════════════════════════════════════
+
+📄 File: broken.aura
+🔧 Provider: claude
+
+1️⃣ Original code:
+
+   1  double(n) = n * 2
+   2  main = double(x)        # ← Error: 'x' no definida
+
+2️⃣ Attempting to execute...
+❌ Runtime error detected: Variable no definida: x
+
+3️⃣ Initiating self-healing...
+4️⃣ Consulting claude agent...
+
+🔍 Agent analysis:
+   La variable 'x' no está definida. Se debe declarar antes de usar.
+
+5️⃣ Proposed fix:
+
+   --- Original
+   +++ Fixed
+
+   - main = double(x)
+   + x = 21
+   + main = double(x)
+
+6️⃣ Applying fix...
+7️⃣ Re-executing...
+
+🎉 SUCCESS! Fixed code executes correctly!
+   Result: 42
+
+═══════════════════════════════════════════════════════════════
+   Self-Healing Complete!
+═══════════════════════════════════════════════════════════════
+```
+
+El código se detecta, analiza y repara automáticamente. Sin intervención humana.
+
+### 3. Un Archivo = Todo
+
+```
+    Python/Flask  ████████████████████████████  10 archivos
+    AURA          ██  1 archivo
+```
+
+No hay `requirements.txt`, `config.py`, `models.py`, `routes.py`...
+Todo el contexto en un solo lugar. El agente no pierde tiempo navegando.
+
+---
+
+## Probalo Ahora
+
+```bash
+# Instalar
+git clone https://github.com/bluegin-ush/aura && cd aura
 cargo build --release
-```
 
-## Uso
-
-```bash
 # Ejecutar programa
-./target/release/aura run programa.aura
+./target/release/aura run examples/01_api_client.aura
+
+# Demo de self-healing
+./target/release/aura heal examples/broken.aura
+
+# Iniciar API REST
+./target/release/aura serve api.aura --port 8080
 
 # REPL interactivo
 ./target/release/aura repl
-
-# Output JSON (para agentes)
-./target/release/aura run programa.aura --json
-
-# Iniciar servidor HTTP
-./target/release/aura serve api.aura --port 8080
 ```
 
 ---
 
-## Servidor HTTP Nativo
+## Ejemplos Reales
 
-AURA incluye un servidor HTTP integrado. Define funciones siguiendo convención REST:
-
+### API Client (4 líneas)
 ```ruby
 +http +json
 
-get_health = {status: "ok", version: "1.0"}
+get_user(id) = : r = http.get("https://api.com/users/{id}"); json.parse(r.body)
+main = : user = get_user(1); "User: {user.name}"
+```
 
-get_users = [{id: 1, name: "Alice"}, {id: 2, name: "Bob"}]
+### CRUD Database (8 líneas)
+```ruby
++db
 
-get_user(id) = {id: id, name: "User " ++ id}
+conn = db.connect("sqlite:./app.db")
+get_users = db.query(conn(), "SELECT * FROM users", [])
+create_user(name email) = db.execute(conn(), "INSERT INTO users (name, email) VALUES (?, ?)", [name, email])
+main = : create_user("Alice", "alice@test.com"); get_users()
+```
 
-post_user(req) = {created: true, data: req.body}
+### REST API Server (10 líneas)
+```ruby
++db +json
 
-put_user(id req) = {updated: true, id: id, data: req.body}
+conn = db.connect("sqlite:./api.db")
 
-del_user(id) = {deleted: true, id: id}
+get_health = {status: "ok"}
+get_users = db.query(conn(), "SELECT * FROM users", [])
+get_user(id) = first(db.query(conn(), "SELECT * FROM users WHERE id = ?", [id]))
+post_user(req) = : db.execute(conn(), "INSERT INTO users (name) VALUES (?)", [req.body.name]); {created: true}
+del_user(id) = : db.execute(conn(), "DELETE FROM users WHERE id = ?", [id]); {deleted: true}
 ```
 
 ```bash
@@ -200,284 +141,159 @@ Routes:
   GET /users
   GET /user/:id
   POST /user
-  PUT /user/:id
   DELETE /user/:id
 ```
 
-```bash
-$ curl http://localhost:8080/user/42
-{"id":42,"name":"User 42"}
-
-$ curl -X POST http://localhost:8080/user -d '{"name":"New"}'
-{"created":true,"data":{"name":"New"}}
-```
-
-### Convención de Rutas
-
-| Función | Método | Ruta |
-|---------|--------|------|
-| `get_users` | GET | /users |
-| `get_user(id)` | GET | /user/:id |
-| `post_user(req)` | POST | /user |
-| `put_user(id req)` | PUT | /user/:id |
-| `del_user(id)` | DELETE | /user/:id |
-
 ---
 
-## Diseñado para Agentes
+## Caso de Estudio: MotoStock
 
-### Errores Estructurados en JSON
-```json
-{
-  "success": false,
-  "error": {
-    "code": "E201",
-    "message": "Variable 'x' no definida",
-    "suggestion": "Definir: x = valor"
-  }
-}
-```
-
-### Self-Healing con LLMs
-```rust
-let engine = HealingEngine::new(ClaudeProvider::new(key));
-let result = engine.heal_error(&error, &context).await?;
-// El error se repara automáticamente
-```
-
-### Hot Reload
-```rust
-hot_reload(&mut vm, &program, "nueva_func(x) = x * 3")?;
-```
-
----
-
-## Stack Completo
+Sistema completo de gestión de inventario para taller de motos.
+**23 endpoints REST** en **68 líneas** de código.
+Desarrollado por un agente IA en **35 minutos**.
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                        CAPACIDADES                             │
-├──────────────┬──────────────┬──────────────┬─────────┬────────┤
-│    +http     │    +json     │     +db      │  +math  │ +server│
-│  GET, POST   │   parse      │   SQLite     │  sqrt   │  REST  │
-│  PUT, DELETE │   stringify  │   Postgres   │  pow    │  API   │
-└──────────────┴──────────────┴──────────────┴─────────┴────────┘
-
-┌──────────────────────────────────────────────────────┐
-│                     BUILTINS                          │
-├────────────┬────────────┬────────────┬───────────────┤
-│    len     │   first    │    type    │     abs       │
-│    str     │   last     │    int     │     min       │
-│   float    │   head     │    bool    │     max       │
-└────────────┴────────────┴────────────┴───────────────┘
+                         AURA vs Python/Flask
+    ┌────────────────────────────────────────────────────────┐
+    │                                                        │
+    │  Líneas de código    68  vs  450     (85% menos)      │
+    │  Archivos             1  vs   10     (90% menos)      │
+    │  Tokens consumidos   3K  vs  15K     (80% menos)      │
+    │  Tiempo             35m  vs   4h     (85% menos)      │
+    │                                                        │
+    └────────────────────────────────────────────────────────┘
 ```
 
----
-
-## Estado: Producción
-
-```
-✅ 62 tests pasando
-✅ Intérprete completo y funcional
-✅ REPL interactivo
-✅ HTTP, JSON, DB, Math integrados
-✅ Servidor HTTP nativo (REST API)
-✅ Self-healing con Claude/OpenAI/Ollama
-✅ Hot reload sin reinicio
-✅ Ejemplos reales funcionando
-```
-
----
-
-## Métricas de Reducción
-
-| Escenario | Python | AURA | Reducción |
-|-----------|--------|------|-----------|
-| API Client | 25 líneas | 4 líneas | **84%** |
-| CRUD | 65 líneas | 8 líneas | **87%** |
-| Data Analysis | 35 líneas | 4 líneas | **88%** |
-| **Promedio** | - | - | **86%** |
-
-| Métrica | Python | AURA | Mejora |
-|---------|--------|------|--------|
-| Tokens por tarea | ~2000 | ~50 | **40x** |
-| Archivos necesarios | 6-8 | 1 | **6x** |
-| Imports requeridos | 5-10 | 0 | **∞** |
-| Self-healing | ❌ | ✅ | - |
-
----
-
-## La Visión
-
-```
-    Hoy                          Mañana
-    ────                         ──────
-
-    👨‍💻 Humano                    🤖 Agentes
-       │                            │
-       ▼                            ▼
-    Python                        AURA
-    JavaScript         ───►      Optimizado
-    TypeScript                   Para IA
-       │                            │
-       ▼                            ▼
-    2000 tokens                  50 tokens
-    $0.02/op                     $0.0005/op
-    15% errores                  2% errores
-```
-
-Cuando millones de agentes escriban código 24/7:
-- **Cada token cuenta** → AURA usa 40x menos
-- **Cada error importa** → AURA se auto-repara
-- **Cada archivo suma** → AURA es autocontenido
-
-**AURA está listo para el futuro.**
-
----
-
-## 🏍️ Caso de Estudio: MotoStock
-
-Sistema completo de gestión de inventario para taller de motos, desarrollado en **35 minutos** por un agente IA.
-
-### Comparación Real: AURA vs Python/Flask
-
-```
-                    LÍNEAS DE CÓDIGO
-    ┌─────────────────────────────────────────────────┐
-    │                                                 │
-    │  Python/Flask  ████████████████████████████ 450 │
-    │                                                 │
-    │  AURA          █████ 68                         │
-    │                                                 │
-    └─────────────────────────────────────────────────┘
-                    REDUCCIÓN: 85%
-
-                    ARCHIVOS NECESARIOS
-    ┌─────────────────────────────────────────────────┐
-    │                                                 │
-    │  Python/Flask  ████████████████████████████  10 │
-    │  (models.py, routes.py, app.py, config.py...)  │
-    │                                                 │
-    │  AURA          ██  2                            │
-    │  (motostock.aura, init.aura)                   │
-    │                                                 │
-    └─────────────────────────────────────────────────┘
-                    REDUCCIÓN: 80%
-
-                    TOKENS LLM CONSUMIDOS
-    ┌─────────────────────────────────────────────────┐
-    │                                                 │
-    │  Python/Flask  ████████████████████████████ 15K │
-    │                                                 │
-    │  AURA          ████  3K                         │
-    │                                                 │
-    └─────────────────────────────────────────────────┘
-                    REDUCCIÓN: 80%
-
-                    TIEMPO DE DESARROLLO
-    ┌─────────────────────────────────────────────────┐
-    │                                                 │
-    │  Python/Flask  ████████████████████████████  4h │
-    │                                                 │
-    │  AURA          █████  35min                     │
-    │                                                 │
-    └─────────────────────────────────────────────────┘
-                    REDUCCIÓN: 85%
-```
-
-### Funcionalidades Implementadas
-
-| Módulo | Endpoints | Descripción |
-|--------|-----------|-------------|
-| Parts | 7 | CRUD + búsqueda + stock bajo |
-| Motos | 6 | CRUD + historial de órdenes |
-| Orders | 6 | CRUD + items + totales |
-| Reports | 3 | Inventario, alertas, mensual |
-| **Total** | **23** | **API REST completa** |
-
-### Código Backend Completo (68 líneas)
-
-```ruby
-+db +json
-
-conn = db.connect("sqlite:./motostock.db")
-
-get_health = {status: "ok", service: "motostock"}
-get_parts = db.query(conn(), "SELECT * FROM parts", [])
-get_part(id) = first(db.query(conn(), "SELECT * FROM parts WHERE id = ?", [id]))
-post_part(code name brand price stock min_stock) = {status: "created", id: db.execute(conn(), "INSERT INTO parts (...) VALUES (?, ?, ?, ?, ?, ?)", [...]).last_insert_id}
-# ... 60 líneas más para 23 endpoints
-```
-
-### Métricas del Desarrollo
-
-| Métrica | Valor |
-|---------|-------|
-| Tiempo total | 35 minutos |
-| Tokens consumidos | ~3,000 |
-| Líneas de código | 68 |
-| Tests automatizados | 26 (100% passing) |
-| Dependencias externas | 0 |
+![Dashboard](projects/motostock/screenshots/dashboard.png)
 
 **[→ Ver proyecto completo](projects/motostock/)**
 
 ---
 
-## Documentación
+## Sintaxis
 
-| Documento | Descripción |
-|-----------|-------------|
-| **[examples/](examples/)** | Ejemplos reales con comparación Python |
-| **[projects/motostock/](projects/motostock/)** | Caso de estudio completo |
-| **[AGENT_GUIDE.md](AGENT_GUIDE.md)** | Guía completa para agentes IA |
-| **[TESTING.md](TESTING.md)** | Suite de tests (62 passing) |
-| **[req/](req/)** | Especificaciones técnicas |
+```ruby
+# Capacidades (reemplazan imports)
++http +json +db
+
+# Todo es una función
+x = 42                    # x() retorna 42
+double(n) = n * 2         # función con parámetro
+
+# Bloques con valores intermedios
+process(x) = : a = x * 2; b = a + 10; b
+
+# Pipes funcionales
+result = data |> transform |> filter |> save
+
+# Condicionales expresivos
+abs(n) = if n < 0 (-n) else n
+
+# Interpolación
+msg = "Hola {user.name}, tienes {count} mensajes"
+
+# Records
+user = {name: "Alice", age: 30}
+
+# Listas
+nums = [1, 2, 3, 4, 5]
+```
 
 ---
 
-## Este proyecto es parte de algo más grande
+## Self-Healing: Cómo Funciona
 
 ```
-  ┌─────────────────────────────┐
-  │                             │
-  │    Y@ enseño {con IA}       │
-  │    ¿Qué debe saber          │
-  │    un profesional?          │
-  │                             │
-  └──────────────┬──────────────┘
-                 │
-        ┌────────┴────────┐
-        │                 │
-        ▼                 ▼
-  ┌───────────┐    ┌────────────┐
-  │           │    │            │
-  │   AURA    │    │   IS-IA    │
-  │           │    │            │
-  │ ¿Con qué  │    │ ¿Cómo se   │
-  │ lenguaje  │    │ construye  │
-  │ programa  │    │ software   │
-  │ un agente?│    │ con IA?    │
-  │           │    │            │
-  └───────────┘    └────────────┘
-        ▲
-        │
-   Estás acá
+   ┌─────────────┐     Error      ┌─────────────┐
+   │   Runtime   │ ──────────────▶│   Agente    │
+   │    AURA     │                │  (Claude)   │
+   │             │ ◀──────────────│             │
+   └─────────────┘      Fix       └─────────────┘
+         │                              │
+         ▼                              ▼
+   ┌─────────────┐               ┌─────────────┐
+   │  Snapshot   │               │   Analiza   │
+   │  (backup)   │               │   contexto  │
+   └─────────────┘               └─────────────┘
+         │                              │
+         ▼                              ▼
+   ┌─────────────┐               ┌─────────────┐
+   │  Aplica     │◀──────────────│  Genera     │
+   │  patch      │    Patch      │  solución   │
+   └─────────────┘               └─────────────┘
+         │
+         ▼
+   ┌─────────────┐
+   │  Verifica   │──▶ Si falla, revierte al snapshot
+   │  ejecución  │
+   └─────────────┘
 ```
 
-| Proyecto | Pregunta | Foco |
-|---|---|---|
-| [**Y@ enseño {con IA}**](https://github.com/bluegin-ush/yo-ense-o-con-IA-) | ¿Qué debe saber un profesional? | La **educación** |
-| [**AURA**](https://github.com/bluegin-ush/aura) | Si la IA escribe código, ¿con qué lenguaje? | Las **herramientas** |
-| [**IS-IA**](https://github.com/bluegin-ush/IS-IA) | ¿Cómo se construye software con IA? | La **profesión** |
+**Proveedores soportados:**
+- Claude (Anthropic API)
+- OpenAI
+- Ollama (local)
 
-**Y@ enseño** argumenta que el foco de la enseñanza debe pasar de escribir
-código a evaluar, especificar y pensar críticamente.
+```bash
+# Demo con mock (sin API key)
+aura heal broken.aura
 
-**AURA** lleva esa premisa al extremo: si los agentes son los que programan,
-necesitan un lenguaje diseñado *para ellos*.
+# Con Claude
+ANTHROPIC_API_KEY=sk-xxx aura heal broken.aura --provider claude
 
-**IS-IA** formaliza las prácticas de ingeniería de software para un mundo donde
-la IA participa activamente en cada etapa del desarrollo.
+# Con Ollama local
+aura heal broken.aura --provider ollama
+```
+
+---
+
+## Comandos
+
+| Comando | Descripción |
+|---------|-------------|
+| `aura run file.aura` | Ejecutar programa |
+| `aura heal file.aura` | Demo de self-healing |
+| `aura serve file.aura` | Iniciar servidor HTTP |
+| `aura repl` | REPL interactivo |
+| `aura check file.aura` | Verificar sin ejecutar |
+| `aura undo` | Revertir último fix |
+| `aura snapshots` | Gestionar snapshots |
+
+---
+
+## Capacidades
+
+| Capacidad | Funciones |
+|-----------|-----------|
+| `+http` | `http.get`, `http.post`, `http.put`, `http.delete` |
+| `+json` | `json.parse`, `json.stringify` |
+| `+db` | `db.connect`, `db.query`, `db.execute` |
+| `+math` | `sqrt`, `pow`, `sin`, `cos`, `log` |
+| `+time` | `time.now`, `time.format`, `time.parse` |
+| `+crypto` | `crypto.hash`, `crypto.hmac` |
+
+---
+
+## Estado
+
+```
+✅ Intérprete completo
+✅ REPL interactivo
+✅ Servidor HTTP nativo
+✅ Self-healing con Claude/OpenAI/Ollama
+✅ Sistema de snapshots y undo
+✅ 62 tests pasando
+```
+
+---
+
+## Parte de Algo Más Grande
+
+| Proyecto | Pregunta |
+|----------|----------|
+| [**Y@ enseño {con IA}**](https://github.com/bluegin-ush/yo-ense-o-con-IA-) | ¿Qué debe saber un profesional en la era de la IA? |
+| **AURA** (estás acá) | Si la IA escribe código, ¿con qué lenguaje? |
+| [**IS-IA**](https://github.com/bluegin-ush/IS-IA) | ¿Cómo se construye software con IA? |
 
 ---
 
