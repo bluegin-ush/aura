@@ -435,6 +435,52 @@ post_part(code name brand price stock min_stock) = {status: "created", id: db.ex
 
 ---
 
+## Este proyecto es parte de algo más grande
+
+```
+  ┌─────────────────────────────┐
+  │                             │
+  │    Y@ enseño {con IA}       │
+  │    ¿Qué debe saber          │
+  │    un profesional?          │
+  │                             │
+  └──────────────┬──────────────┘
+                 │
+        ┌────────┴────────┐
+        │                 │
+        ▼                 ▼
+  ┌───────────┐    ┌────────────┐
+  │           │    │            │
+  │   AURA    │    │   IS-IA    │
+  │           │    │            │
+  │ ¿Con qué  │    │ ¿Cómo se   │
+  │ lenguaje  │    │ construye  │
+  │ programa  │    │ software   │
+  │ un agente?│    │ con IA?    │
+  │           │    │            │
+  └───────────┘    └────────────┘
+        ▲
+        │
+   Estás acá
+```
+
+| Proyecto | Pregunta | Foco |
+|---|---|---|
+| [**Y@ enseño {con IA}**](https://github.com/bluegin-ush/yo-ense-o-con-IA-) | ¿Qué debe saber un profesional? | La **educación** |
+| [**AURA**](https://github.com/bluegin-ush/aura) | Si la IA escribe código, ¿con qué lenguaje? | Las **herramientas** |
+| [**IS-IA**](https://github.com/bluegin-ush/IS-IA) | ¿Cómo se construye software con IA? | La **profesión** |
+
+**Y@ enseño** argumenta que el foco de la enseñanza debe pasar de escribir
+código a evaluar, especificar y pensar críticamente.
+
+**AURA** lleva esa premisa al extremo: si los agentes son los que programan,
+necesitan un lenguaje diseñado *para ellos*.
+
+**IS-IA** formaliza las prácticas de ingeniería de software para un mundo donde
+la IA participa activamente en cada etapa del desarrollo.
+
+---
+
 ## Licencia
 
 MIT
