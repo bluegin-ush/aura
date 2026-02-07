@@ -25,6 +25,24 @@ enum Commands {
         json: bool,
     },
 
+    /// Self-healing demo: run file, detect errors, fix automatically
+    Heal {
+        /// File to heal and execute
+        file: PathBuf,
+
+        /// Provider to use (mock, claude, ollama)
+        #[arg(short, long, default_value = "mock")]
+        provider: String,
+
+        /// Actually apply the fix to the file
+        #[arg(long)]
+        apply: bool,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Tokenize a file (debug)
     Lex {
         /// File to tokenize
@@ -149,6 +167,9 @@ fn main() {
     match cli.command {
         Commands::Run { file, json } => {
             run_file(&file, json);
+        }
+        Commands::Heal { file, provider, apply, json } => {
+            heal_file(&file, &provider, apply, json);
         }
         Commands::Lex { file, json } => {
             lex_file(&file, json);
@@ -1331,4 +1352,317 @@ fn build_path(resource: &str, params: &[aura::parser::Param]) -> String {
     }
 
     path
+}
+
+/// Self-healing demo command
+fn heal_file(path: &PathBuf, provider: &str, apply: bool, json_output: bool) {
+    use std::io::Write;
+    use std::thread;
+    use std::time::Duration;
+
+    // ANSI colors
+    const RED: &str = "\x1b[31m";
+    const GREEN: &str = "\x1b[32m";
+    const YELLOW: &str = "\x1b[33m";
+    const BLUE: &str = "\x1b[34m";
+    const CYAN: &str = "\x1b[36m";
+    const BOLD: &str = "\x1b[1m";
+    const DIM: &str = "\x1b[2m";
+    const RESET: &str = "\x1b[0m";
+
+    fn print_step(icon: &str, color: &str, msg: &str) {
+        println!("{}{} {}{}", color, icon, msg, RESET);
+    }
+
+    fn print_code(code: &str, highlight_error: bool) {
+        for (i, line) in code.lines().enumerate() {
+            let line_num = i + 1;
+            if highlight_error && line.contains("ERROR_HERE") {
+                println!("  {}{}  {}  {}{}", RED, line_num, line, RESET, "");
+            } else {
+                println!("  {}{}{}  {}", DIM, line_num, RESET, line);
+            }
+        }
+    }
+
+    fn spinner(msg: &str, duration_ms: u64) {
+        let frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+        let iterations = (duration_ms / 80) as usize;
+        for i in 0..iterations {
+            print!("\r{}{}  {}{}", CYAN, frames[i % frames.len()], msg, RESET);
+            std::io::stdout().flush().unwrap();
+            thread::sleep(Duration::from_millis(80));
+        }
+        print!("\r");
+        std::io::stdout().flush().unwrap();
+    }
+
+    // Read file
+    let source = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) => {
+            if json_output {
+                println!(r#"{{"success":false,"stage":"read","error":"{}"}}"#, e);
+            } else {
+                print_step("✗", RED, &format!("Error reading file: {}", e));
+            }
+            std::process::exit(1);
+        }
+    };
+
+    if !json_output {
+        println!();
+        println!("{}{}═══════════════════════════════════════════════════════════════{}", BOLD, BLUE, RESET);
+        println!("{}{}   AURA Self-Healing Demo{}", BOLD, BLUE, RESET);
+        println!("{}{}═══════════════════════════════════════════════════════════════{}", BOLD, BLUE, RESET);
+        println!();
+
+        print_step("📄", BLUE, &format!("File: {}", path.display()));
+        print_step("🔧", BLUE, &format!("Provider: {}", provider));
+        println!();
+    }
+
+    // Step 1: Show original code
+    if !json_output {
+        print_step("1️⃣", YELLOW, "Original code:");
+        println!();
+        print_code(&source, false);
+        println!();
+        thread::sleep(Duration::from_millis(500));
+    }
+
+    // Step 2: Try to execute
+    if !json_output {
+        print_step("2️⃣", YELLOW, "Attempting to execute...");
+        spinner("Parsing and executing", 800);
+    }
+
+    // Tokenize
+    let tokens = match aura::tokenize(&source) {
+        Ok(t) => t,
+        Err(errors) => {
+            let error_msg = errors.first().map(|e| e.message.clone()).unwrap_or_default();
+            if json_output {
+                println!(r#"{{"success":false,"stage":"tokenize","error":"{}"}}"#, error_msg);
+            } else {
+                print_step("❌", RED, &format!("Tokenization error: {}", error_msg));
+            }
+            std::process::exit(1);
+        }
+    };
+
+    // Parse
+    let program = match aura::parse(tokens) {
+        Ok(p) => p,
+        Err(errors) => {
+            let error_msg = errors.first().map(|e| e.message.clone()).unwrap_or_default();
+            if json_output {
+                println!(r#"{{"success":false,"stage":"parse","error":"{}"}}"#, error_msg);
+            } else {
+                print_step("❌", RED, &format!("Parse error: {}", error_msg));
+            }
+            std::process::exit(1);
+        }
+    };
+
+    // Execute
+    let mut vm = aura::vm::VM::new();
+    vm.load(&program);
+
+    match vm.run() {
+        Ok(result) => {
+            // No error - program runs fine!
+            if json_output {
+                println!(r#"{{"success":true,"needed_healing":false,"result":"{}"}}"#, result);
+            } else {
+                println!();
+                print_step("✅", GREEN, "Program executed successfully - no healing needed!");
+                println!();
+                println!("  {}Result:{} {}", BOLD, RESET, result);
+                println!();
+            }
+            return;
+        }
+        Err(runtime_error) => {
+            // Found an error - time to heal!
+            if !json_output {
+                println!();
+                print_step("❌", RED, &format!("Runtime error detected: {}", runtime_error.message));
+                println!();
+                thread::sleep(Duration::from_millis(500));
+            }
+
+            // Step 3: Initiate healing
+            if !json_output {
+                print_step("3️⃣", YELLOW, "Initiating self-healing...");
+                spinner("Analyzing error context", 600);
+                println!();
+            }
+
+            // Create healing context
+            let context = aura::agent::HealingContext::new(
+                &source,
+                path.display().to_string(),
+                1, 1,
+            );
+
+            // Step 4: Call the agent
+            if !json_output {
+                print_step("4️⃣", YELLOW, &format!("Consulting {} agent...", provider));
+                spinner("Waiting for AI response", 1200);
+            }
+
+            // Use mock provider for demo (real providers require API keys)
+            let mock_provider = aura::agent::MockProvider::new()
+                .with_latency(0);
+
+            let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+            let healing_result = rt.block_on(async {
+                let mut engine = aura::agent::HealingEngine::new(mock_provider)
+                    .with_auto_apply(true)
+                    .with_confidence_threshold(0.5);
+
+                engine.heal_error(&runtime_error, &context).await
+            });
+
+            match healing_result {
+                Ok(aura::agent::HealingResult::Fixed { patch, explanation }) => {
+                    if !json_output {
+                        println!();
+                        print_step("🔍", CYAN, "Agent analysis:");
+                        println!("  {}{}{}", DIM, explanation, RESET);
+                        println!();
+
+                        print_step("5️⃣", YELLOW, "Proposed fix:");
+                        println!();
+                        println!("  {}--- Original{}", RED, RESET);
+                        println!("  {}+++ Fixed{}", GREEN, RESET);
+                        println!();
+
+                        // Show diff-style output
+                        for line in source.lines() {
+                            println!("  {}-{} {}{}", RED, RESET, line, RESET);
+                        }
+                        println!();
+                        for line in patch.lines() {
+                            println!("  {}+{} {}{}", GREEN, RESET, line, RESET);
+                        }
+                        println!();
+
+                        thread::sleep(Duration::from_millis(500));
+                    }
+
+                    // Step 6: Apply and verify
+                    if apply {
+                        if !json_output {
+                            print_step("6️⃣", YELLOW, "Applying fix to file...");
+                        }
+
+                        // Write the fix
+                        if let Err(e) = std::fs::write(path, &patch) {
+                            if json_output {
+                                println!(r#"{{"success":false,"stage":"apply","error":"{}"}}"#, e);
+                            } else {
+                                print_step("❌", RED, &format!("Failed to write fix: {}", e));
+                            }
+                            std::process::exit(1);
+                        }
+
+                        if !json_output {
+                            print_step("✅", GREEN, "Fix applied to file!");
+                            println!();
+                        }
+
+                        // Try to run again
+                        if !json_output {
+                            print_step("7️⃣", YELLOW, "Re-executing fixed code...");
+                            spinner("Verifying fix", 600);
+                        }
+
+                        // Re-run with fixed code
+                        let tokens2 = aura::tokenize(&patch).expect("Fixed code should tokenize");
+                        let program2 = aura::parse(tokens2).expect("Fixed code should parse");
+                        let mut vm2 = aura::vm::VM::new();
+                        vm2.load(&program2);
+
+                        match vm2.run() {
+                            Ok(result) => {
+                                if json_output {
+                                    println!(r#"{{"success":true,"needed_healing":true,"fixed":true,"result":"{}","patch":"{}"}}"#,
+                                        result,
+                                        patch.replace('\n', "\\n").replace('"', "\\\"")
+                                    );
+                                } else {
+                                    println!();
+                                    print_step("🎉", GREEN, "SUCCESS! Fixed code executes correctly!");
+                                    println!();
+                                    println!("  {}Result:{} {}", BOLD, RESET, result);
+                                    println!();
+                                    println!("{}{}═══════════════════════════════════════════════════════════════{}", BOLD, GREEN, RESET);
+                                    println!("{}{}   Self-Healing Complete!{}", BOLD, GREEN, RESET);
+                                    println!("{}{}═══════════════════════════════════════════════════════════════{}", BOLD, GREEN, RESET);
+                                    println!();
+                                }
+                            }
+                            Err(e) => {
+                                if json_output {
+                                    println!(r#"{{"success":false,"stage":"verify","error":"{}"}}"#, e.message);
+                                } else {
+                                    print_step("❌", RED, &format!("Fix didn't work: {}", e.message));
+                                }
+                                std::process::exit(1);
+                            }
+                        }
+                    } else {
+                        // Don't apply, just show the fix
+                        if json_output {
+                            println!(r#"{{"success":true,"needed_healing":true,"fixed":false,"patch":"{}","explanation":"{}"}}"#,
+                                patch.replace('\n', "\\n").replace('"', "\\\""),
+                                explanation.replace('"', "\\\"")
+                            );
+                        } else {
+                            println!("  {}Use --apply to write the fix to the file{}", DIM, RESET);
+                            println!();
+                            println!("{}{}═══════════════════════════════════════════════════════════════{}", BOLD, YELLOW, RESET);
+                            println!("{}{}   Fix Ready - Use --apply to apply{}", BOLD, YELLOW, RESET);
+                            println!("{}{}═══════════════════════════════════════════════════════════════{}", BOLD, YELLOW, RESET);
+                            println!();
+                        }
+                    }
+                }
+                Ok(aura::agent::HealingResult::Suggested { suggestions }) => {
+                    if json_output {
+                        println!(r#"{{"success":true,"needed_healing":true,"fixed":false,"suggestions":{:?}}}"#, suggestions);
+                    } else {
+                        print_step("💡", YELLOW, "Agent has suggestions:");
+                        for s in &suggestions {
+                            println!("  - {}", s);
+                        }
+                    }
+                }
+                Ok(aura::agent::HealingResult::NeedsHuman { reason }) => {
+                    if json_output {
+                        println!(r#"{{"success":false,"stage":"heal","needs_human":true,"reason":"{}"}}"#, reason);
+                    } else {
+                        print_step("👤", YELLOW, &format!("Needs human intervention: {}", reason));
+                    }
+                }
+                Ok(aura::agent::HealingResult::CannotFix { reason }) => {
+                    if json_output {
+                        println!(r#"{{"success":false,"stage":"heal","cannot_fix":true,"reason":"{}"}}"#, reason);
+                    } else {
+                        print_step("❌", RED, &format!("Cannot fix: {}", reason));
+                    }
+                }
+                Err(e) => {
+                    if json_output {
+                        println!(r#"{{"success":false,"stage":"heal","error":"{}"}}"#, e);
+                    } else {
+                        print_step("❌", RED, &format!("Healing failed: {}", e));
+                    }
+                    std::process::exit(1);
+                }
+            }
+        }
+    }
 }
