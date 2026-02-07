@@ -2,29 +2,67 @@
 
 # MotoStock - API de Gestión de Stock para Taller de Motos
 
-# Helper para obtener conexión (llama con conn())
+# Conexión a base de datos
 conn = db.connect("sqlite:./motostock.db")
 
-# Health check
-get_health = {status: "ok", service: "motostock", version: "1.0"}
+# ==================== HEALTH ====================
 
-# Listar todos los repuestos
+get_health = {status: "ok", service: "motostock", version: "2.0"}
+
+# ==================== PARTS (Repuestos) ====================
+
 get_parts = db.query(conn(), "SELECT * FROM parts ORDER BY name", [])
 
-# Obtener un repuesto por ID
 get_part(id) = first(db.query(conn(), "SELECT * FROM parts WHERE id = ?", [id]))
 
-# Crear repuesto (recibe body JSON)
 post_part(code name brand price stock min_stock) = {status: "created", id: db.execute(conn(), "INSERT INTO parts (code, name, brand, price, stock, min_stock) VALUES (?, ?, ?, ?, ?, ?)", [code, name, brand, price, stock, min_stock]).last_insert_id}
 
-# Actualizar precio de repuesto
 put_part(id price) = : db.execute(conn(), "UPDATE parts SET price = ? WHERE id = ?", [price, id]); {status: "updated", id: id}
 
-# Eliminar repuesto
 del_part(id) = : db.execute(conn(), "DELETE FROM parts WHERE id = ?", [id]); {status: "deleted", id: id}
 
-# Repuestos con stock bajo (stock < min_stock)
 get_partsLowStock = db.query(conn(), "SELECT * FROM parts WHERE stock < min_stock ORDER BY name", [])
 
-# Buscar repuestos (usa query param q via req)
 get_partsSearch(req) = db.query(conn(), "SELECT * FROM parts WHERE name LIKE ? OR code LIKE ? OR brand LIKE ? ORDER BY name", ["%" ++ req.query.q ++ "%", "%" ++ req.query.q ++ "%", "%" ++ req.query.q ++ "%"])
+
+# ==================== MOTOS ====================
+
+get_motos = db.query(conn(), "SELECT * FROM motos ORDER BY plate", [])
+
+get_moto(id) = first(db.query(conn(), "SELECT * FROM motos WHERE id = ?", [id]))
+
+post_moto(plate brand model year owner_name owner_phone) = {status: "created", id: db.execute(conn(), "INSERT INTO motos (plate, brand, model, year, owner_name, owner_phone) VALUES (?, ?, ?, ?, ?, ?)", [plate, brand, model, year, owner_name, owner_phone]).last_insert_id}
+
+put_moto(id owner_name owner_phone) = : db.execute(conn(), "UPDATE motos SET owner_name = ?, owner_phone = ? WHERE id = ?", [owner_name, owner_phone, id]); {status: "updated", id: id}
+
+del_moto(id) = : db.execute(conn(), "DELETE FROM motos WHERE id = ?", [id]); {status: "deleted", id: id}
+
+get_motoOrders(id) = db.query(conn(), "SELECT * FROM orders WHERE moto_id = ? ORDER BY created_at DESC", [id])
+
+# ==================== ORDERS (Órdenes de Trabajo) ====================
+
+get_orders = db.query(conn(), "SELECT o.*, m.plate, m.brand, m.model FROM orders o JOIN motos m ON o.moto_id = m.id ORDER BY o.created_at DESC", [])
+
+get_order(id) = first(db.query(conn(), "SELECT o.*, m.plate, m.brand, m.model FROM orders o JOIN motos m ON o.moto_id = m.id WHERE o.id = ?", [id]))
+
+post_order(moto_id description) = {status: "created", id: db.execute(conn(), "INSERT INTO orders (moto_id, description) VALUES (?, ?)", [moto_id, description]).last_insert_id}
+
+put_orderStatus(id status) = : db.execute(conn(), "UPDATE orders SET status = ? WHERE id = ?", [status, id]); {status: "updated", id: id, new_status: status}
+
+del_order(id) = : db.execute(conn(), "DELETE FROM order_items WHERE order_id = ?", [id]); db.execute(conn(), "DELETE FROM orders WHERE id = ?", [id]); {status: "deleted", id: id}
+
+# ==================== ORDER ITEMS ====================
+
+get_orderItems(id) = db.query(conn(), "SELECT oi.*, p.code, p.name, p.brand FROM order_items oi JOIN parts p ON oi.part_id = p.id WHERE oi.order_id = ?", [id])
+
+post_orderItem(id part_id quantity) = : part = first(db.query(conn(), "SELECT price, stock FROM parts WHERE id = ?", [part_id])); db.execute(conn(), "INSERT INTO order_items (order_id, part_id, quantity, unit_price) VALUES (?, ?, ?, ?)", [id, part_id, quantity, part.price]); db.execute(conn(), "UPDATE parts SET stock = stock - ? WHERE id = ?", [quantity, part_id]); {status: "created", order_id: id, part_id: part_id, quantity: quantity, unit_price: part.price}
+
+get_orderTotal(id) = first(db.query(conn(), "SELECT SUM(quantity * unit_price) as total FROM order_items WHERE order_id = ?", [id]))
+
+# ==================== REPORTS ====================
+
+get_reportsInventory = first(db.query(conn(), "SELECT COUNT(*) as total_parts, SUM(stock) as total_units, SUM(stock * price) as total_value FROM parts", []))
+
+get_reportsLowStock = db.query(conn(), "SELECT code, name, brand, stock, min_stock, (min_stock - stock) as to_order FROM parts WHERE stock < min_stock ORDER BY (min_stock - stock) DESC", [])
+
+get_reportsMonthly = : orders_count = first(db.query(conn(), "SELECT COUNT(*) as count FROM orders WHERE created_at >= date('now', 'start of month')", [])); revenue = first(db.query(conn(), "SELECT COALESCE(SUM(oi.quantity * oi.unit_price), 0) as total FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE o.created_at >= date('now', 'start of month')", [])); {orders: orders_count.count, revenue: revenue.total}
