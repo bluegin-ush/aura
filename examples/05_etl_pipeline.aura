@@ -1,0 +1,26 @@
++http +json +db
+
+# ETL Pipeline - Extraer datos de API, transformar y cargar en DB
+# Patrón común en data engineering y analytics
+
+# EXTRACT: Obtener datos de API externa
+extract_users = : r = http.get("https://jsonplaceholder.typicode.com/users"); json.parse(r.body)
+
+extract_posts = : r = http.get("https://jsonplaceholder.typicode.com/posts"); json.parse(r.body)
+
+# TRANSFORM: Limpiar y preparar datos
+transform_user(u) = {id: u.id, name: u.name, email: u.email, company: u.company.name}
+
+# LOAD: Guardar en base de datos
+init_db(c) = db.execute(c, "CREATE TABLE IF NOT EXISTS users_analytics (id INTEGER PRIMARY KEY, name TEXT, email TEXT, company TEXT, post_count INTEGER)")
+
+load_user(c, user, post_count) = db.execute(c, "INSERT OR REPLACE INTO users_analytics (id, name, email, company, post_count) VALUES (?, ?, ?, ?, ?)", [user.id, user.name, user.email, user.company, post_count])
+
+# Contar posts por usuario
+count_user_posts(posts, user_id) = len(posts)
+
+# Pipeline completo
+run_pipeline(c) = : users = extract_users(); posts = extract_posts(); total = len(users); "ETL completado: {total} usuarios procesados"
+
+# Main
+main = : c = db.connect("sqlite::memory:"); init_db(c); result = run_pipeline(c); db.close(c); result

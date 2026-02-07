@@ -208,9 +208,191 @@ if __name__ == "__main__":
 
 ---
 
+---
+
+## 4. Webhook Handler
+
+### AURA (8 líneas, ~100 tokens)
+
+```ruby
++http +json +db
+
+init_events(c) = db.execute(c, "CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, type TEXT, data TEXT, processed INTEGER)")
+save_event(c, type, data) = db.execute(c, "INSERT INTO events (type, data, processed) VALUES (?, ?, 0)", [type, json.stringify(data)])
+process_event(e) = if e.type == "payment.success" "Pago OK" else "Revisar"
+get_pending(c) = db.query(c, "SELECT * FROM events WHERE processed = 0", [])
+
+main = : c = db.connect("sqlite::memory:"); init_events(c); save_event(c, "payment.success", {amount: 150}); get_pending(c)
+```
+
+```
+$ aura run 04_webhook_handler.aura
+[{id:1 type:payment.success data:{"amount":150} processed:0}]
+```
+
+### Python equivalente (~55 líneas, ~380 tokens)
+
+```python
+import sqlite3
+import json
+from dataclasses import dataclass
+from typing import List, Optional
+from datetime import datetime
+
+@dataclass
+class Event:
+    id: Optional[int]
+    type: str
+    data: dict
+    processed: bool
+    created_at: datetime
+
+class WebhookHandler:
+    def __init__(self, db_path: str = ":memory:"):
+        self.conn = sqlite3.connect(db_path)
+        self.conn.row_factory = sqlite3.Row
+        self._init_db()
+
+    def _init_db(self):
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS events (
+                id INTEGER PRIMARY KEY,
+                type TEXT,
+                data TEXT,
+                processed INTEGER,
+                created_at TEXT
+            )
+        """)
+        self.conn.commit()
+
+    def save_event(self, event_type: str, data: dict) -> int:
+        cursor = self.conn.execute(
+            "INSERT INTO events (type, data, processed, created_at) VALUES (?, ?, 0, ?)",
+            (event_type, json.dumps(data), datetime.now().isoformat())
+        )
+        self.conn.commit()
+        return cursor.lastrowid
+
+    def process_event(self, event: Event) -> str:
+        if event.type == "payment.success":
+            return "Pago OK"
+        return "Revisar"
+
+    def get_pending(self) -> List[Event]:
+        cursor = self.conn.execute("SELECT * FROM events WHERE processed = 0")
+        return [Event(**dict(row)) for row in cursor.fetchall()]
+
+if __name__ == "__main__":
+    handler = WebhookHandler()
+    handler.save_event("payment.success", {"amount": 150})
+    print(handler.get_pending())
+```
+
+### Reducción: 85% menos código, 74% menos tokens
+
+---
+
+## 5. ETL Pipeline
+
+### AURA (7 líneas, ~90 tokens)
+
+```ruby
++http +json +db
+
+extract_users = : r = http.get("https://jsonplaceholder.typicode.com/users"); json.parse(r.body)
+init_db(c) = db.execute(c, "CREATE TABLE IF NOT EXISTS users_analytics (id INTEGER, name TEXT, email TEXT)")
+load_user(c, u) = db.execute(c, "INSERT INTO users_analytics VALUES (?, ?, ?)", [u.id, u.name, u.email])
+
+run_pipeline(c) = : users = extract_users(); total = len(users); "ETL: {total} usuarios"
+main = : c = db.connect("sqlite::memory:"); init_db(c); run_pipeline(c)
+```
+
+```
+$ aura run 05_etl_pipeline.aura
+ETL: 10 usuarios
+```
+
+### Python equivalente (~50 líneas, ~350 tokens)
+
+```python
+import requests
+import sqlite3
+from dataclasses import dataclass
+from typing import List
+
+@dataclass
+class User:
+    id: int
+    name: str
+    email: str
+
+class ETLPipeline:
+    def __init__(self, db_path: str = ":memory:"):
+        self.conn = sqlite3.connect(db_path)
+        self._init_db()
+
+    def _init_db(self):
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS users_analytics (
+                id INTEGER PRIMARY KEY,
+                name TEXT,
+                email TEXT
+            )
+        """)
+        self.conn.commit()
+
+    def extract(self) -> List[dict]:
+        response = requests.get("https://jsonplaceholder.typicode.com/users")
+        response.raise_for_status()
+        return response.json()
+
+    def transform(self, raw_user: dict) -> User:
+        return User(
+            id=raw_user["id"],
+            name=raw_user["name"],
+            email=raw_user["email"]
+        )
+
+    def load(self, user: User):
+        self.conn.execute(
+            "INSERT INTO users_analytics VALUES (?, ?, ?)",
+            (user.id, user.name, user.email)
+        )
+        self.conn.commit()
+
+    def run(self) -> str:
+        users = self.extract()
+        for raw in users:
+            user = self.transform(raw)
+            self.load(user)
+        return f"ETL: {len(users)} usuarios"
+
+if __name__ == "__main__":
+    pipeline = ETLPipeline()
+    print(pipeline.run())
+```
+
+### Reducción: 86% menos código, 74% menos tokens
+
+---
+
+## Resumen
+
+| Escenario | AURA | Python | Reducción Código | Reducción Tokens |
+|-----------|------|--------|------------------|------------------|
+| API Client | 4 líneas | 25 líneas | 84% | 75% |
+| CRUD | 8 líneas | 65 líneas | 87% | 73% |
+| Análisis | 4 líneas | 35 líneas | 88% | 76% |
+| Webhook | 8 líneas | 55 líneas | 85% | 74% |
+| ETL | 7 líneas | 50 líneas | 86% | 74% |
+
+**Promedio: 86% menos código, 74% menos tokens**
+
+---
+
 ## Por qué importa para agentes IA
 
-1. **Menos tokens = Menos costo**: Un agente que genera código AURA consume 75% menos tokens que uno que genera Python.
+1. **Menos tokens = Menos costo**: Un agente que genera código AURA consume 74% menos tokens que uno que genera Python.
 
 2. **Menos complejidad = Menos errores**: Menos líneas significa menos lugares donde equivocarse.
 

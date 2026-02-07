@@ -1,0 +1,22 @@
++http +json +db
+
+# Webhook Handler - Procesar eventos de pagos (estilo Stripe)
+# Ejemplo de patrón común en aplicaciones modernas
+
+# Inicializar base de datos de eventos
+init_events(c) = db.execute(c, "CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, type TEXT, data TEXT, processed INTEGER, created_at TEXT)")
+
+# Guardar evento recibido
+save_event(c, event_type, data) = db.execute(c, "INSERT INTO events (type, data, processed, created_at) VALUES (?, ?, 0, datetime('now'))", [event_type, json.stringify(data)])
+
+# Procesar evento según tipo
+process_event(event) = : type = event.type; if type == "payment.success" "Pago procesado" else if type == "payment.failed" "Pago fallido - notificar" else "Evento desconocido"
+
+# Marcar evento como procesado
+mark_processed(c, id) = db.execute(c, "UPDATE events SET processed = 1 WHERE id = ?", [id])
+
+# Obtener eventos pendientes
+get_pending(c) = db.query(c, "SELECT * FROM events WHERE processed = 0", [])
+
+# Simular recepción de webhook
+main = : c = db.connect("sqlite::memory:"); init_events(c); save_event(c, "payment.success", {amount: 150, customer: "cliente_123"}); save_event(c, "payment.failed", {amount: 50, reason: "sin fondos"}); pending = get_pending(c); db.close(c); pending
