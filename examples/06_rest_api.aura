@@ -1,0 +1,15 @@
++http +json
+
+get_health = {status_text: "ok", version: "1.0", uptime: "running"}
+
+get_products = [{id: 1, name: "Widget", price: 29.99, stock: 100}, {id: 2, name: "Gadget", price: 49.99, stock: 50}, {id: 3, name: "Gizmo", price: 19.99, stock: 200}]
+
+get_product(id) = {id: id, name: "Product " ++ id, found: true}
+
+post_product(req) = {created: true, data: req.body}
+
+put_product(id req) = {updated: true, id: id, data: req.body}
+
+del_product(id) = {deleted: true, id: id, message: "Product " ++ id ++ " removed"}
+
+get_stats = {total_products: 3, total_value: 3499.50, last_update: "2024-01-15"}

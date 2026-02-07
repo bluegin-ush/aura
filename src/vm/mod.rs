@@ -269,6 +269,21 @@ impl VM {
         self.env.clear();
     }
 
+    /// Llama a una función por nombre con argumentos dados
+    /// Útil para ejecutar handlers desde el servidor HTTP
+    pub fn call_by_name(&mut self, name: &str, args: Vec<Value>) -> Result<Value, RuntimeError> {
+        let func = self.env.get_function(name).cloned();
+        match func {
+            Some(f) => self.call_function(&f, &args),
+            None => Err(RuntimeError::new(format!("Función no encontrada: {}", name))),
+        }
+    }
+
+    /// Define una variable en el entorno actual
+    pub fn define_var(&mut self, name: String, value: Value) {
+        self.env.define(name, value);
+    }
+
     /// Evalúa una expresión
     pub fn eval(&mut self, expr: &Expr) -> Result<Value, RuntimeError> {
         match expr {
@@ -930,8 +945,14 @@ impl VM {
             (Value::Int(a), BinaryOp::Add, Value::Float(b)) => Ok(Value::Float(*a as f64 + b)),
             (Value::Float(a), BinaryOp::Add, Value::Int(b)) => Ok(Value::Float(a + *b as f64)),
 
-            // Concatenación de strings
+            // Concatenación de strings (con conversión automática)
             (Value::String(a), BinaryOp::Concat, Value::String(b)) => Ok(Value::String(format!("{}{}", a, b))),
+            (Value::String(a), BinaryOp::Concat, Value::Int(b)) => Ok(Value::String(format!("{}{}", a, b))),
+            (Value::String(a), BinaryOp::Concat, Value::Float(b)) => Ok(Value::String(format!("{}{}", a, b))),
+            (Value::String(a), BinaryOp::Concat, Value::Bool(b)) => Ok(Value::String(format!("{}{}", a, b))),
+            (Value::Int(a), BinaryOp::Concat, Value::String(b)) => Ok(Value::String(format!("{}{}", a, b))),
+            (Value::Float(a), BinaryOp::Concat, Value::String(b)) => Ok(Value::String(format!("{}{}", a, b))),
+            (Value::Bool(a), BinaryOp::Concat, Value::String(b)) => Ok(Value::String(format!("{}{}", a, b))),
             (Value::String(a), BinaryOp::Add, Value::String(b)) => Ok(Value::String(format!("{}{}", a, b))),
 
             // Comparaciones

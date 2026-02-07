@@ -18,6 +18,7 @@ pub mod error;
 pub mod lexer;
 pub mod parser;
 pub mod reload;
+pub mod server;
 pub mod types;
 pub mod vm;
 

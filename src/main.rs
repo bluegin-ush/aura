@@ -65,6 +65,20 @@ enum Commands {
         json: bool,
     },
 
+    /// Start HTTP server
+    Serve {
+        /// AURA file with route definitions
+        file: PathBuf,
+
+        /// Port to listen on
+        #[arg(short, long, default_value = "8080")]
+        port: u16,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Revert the last healing action
     Undo {
         /// List undo history instead of reverting
@@ -150,6 +164,9 @@ fn main() {
         }
         Commands::Info { json } => {
             show_info(json);
+        }
+        Commands::Serve { file, port, json } => {
+            serve_file(&file, port, json);
         }
         Commands::Undo { list, to, json } => {
             handle_undo(list, to, json);
@@ -1172,4 +1189,146 @@ fn truncate_str(s: &str, max_len: usize) -> String {
     } else {
         s
     }
+}
+
+/// Serve an AURA file as HTTP server
+fn serve_file(path: &PathBuf, port: u16, json_output: bool) {
+    use aura::server::start_server;
+
+    let source = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) => {
+            if json_output {
+                println!(r#"{{"success":false,"error":"Error reading file: {}"}}"#, e);
+            } else {
+                eprintln!("Error reading file: {}", e);
+            }
+            std::process::exit(1);
+        }
+    };
+
+    // Tokenize
+    let tokens = match aura::tokenize(&source) {
+        Ok(t) => t,
+        Err(errors) => {
+            if json_output {
+                println!(r#"{{"success":false,"error":"Tokenization error"}}"#);
+            } else {
+                eprintln!("Tokenization errors:");
+                for e in errors {
+                    eprintln!("  {}", e.message);
+                }
+            }
+            std::process::exit(1);
+        }
+    };
+
+    // Parse
+    let program = match aura::parse(tokens) {
+        Ok(p) => p,
+        Err(errors) => {
+            if json_output {
+                println!(r#"{{"success":false,"error":"Parse error"}}"#);
+            } else {
+                eprintln!("Parse errors:");
+                for e in errors {
+                    eprintln!("  {}", e.message);
+                }
+            }
+            std::process::exit(1);
+        }
+    };
+
+    // Extract routes from function definitions
+    // Convention: get_users -> GET /users, post_user -> POST /user, etc.
+    let routes = extract_routes(&program);
+
+    if routes.is_empty() {
+        if json_output {
+            println!(r#"{{"success":false,"error":"No routes found. Define functions like get_users, post_user, etc."}}"#);
+        } else {
+            eprintln!("No routes found.");
+            eprintln!("Define functions following REST convention:");
+            eprintln!("  get_users     -> GET /users");
+            eprintln!("  get_user(id)  -> GET /user/:id");
+            eprintln!("  post_user     -> POST /user");
+            eprintln!("  put_user(id)  -> PUT /user/:id");
+            eprintln!("  del_user(id)  -> DELETE /user/:id");
+        }
+        std::process::exit(1);
+    }
+
+    if !json_output {
+        println!("Starting AURA server on port {}...", port);
+        println!("Routes:");
+    }
+
+    // Run async server
+    let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+    rt.block_on(async {
+        if let Err(e) = start_server(port, routes, program).await {
+            if json_output {
+                println!(r#"{{"success":false,"error":"Server error: {}"}}"#, e);
+            } else {
+                eprintln!("Server error: {}", e);
+            }
+            std::process::exit(1);
+        }
+    });
+}
+
+/// Extract routes from function definitions based on naming convention
+fn extract_routes(program: &aura::Program) -> Vec<aura::server::Route> {
+    let mut routes = Vec::new();
+
+    for def in &program.definitions {
+        if let aura::Definition::FuncDef(func) = def {
+            if let Some(route) = parse_route_from_name(&func.name, &func.params) {
+                routes.push(route);
+            }
+        }
+    }
+
+    routes
+}
+
+/// Parse route from function name following REST convention
+/// get_users -> GET /users
+/// get_user(id) -> GET /user/:id
+/// post_user -> POST /user
+fn parse_route_from_name(name: &str, params: &[aura::parser::Param]) -> Option<aura::server::Route> {
+    let prefixes = [
+        ("get_", "GET"),
+        ("post_", "POST"),
+        ("put_", "PUT"),
+        ("patch_", "PATCH"),
+        ("del_", "DELETE"),
+        ("delete_", "DELETE"),
+    ];
+
+    for (prefix, method) in prefixes {
+        if name.starts_with(prefix) {
+            let resource = &name[prefix.len()..];
+            let path = build_path(resource, params);
+            return Some(aura::server::Route::new(method, &path, name));
+        }
+    }
+
+    None
+}
+
+/// Build path from resource name and parameters
+/// "users" + [] -> "/users"
+/// "user" + [id] -> "/user/:id"
+fn build_path(resource: &str, params: &[aura::parser::Param]) -> String {
+    let mut path = format!("/{}", resource.replace('_', "/"));
+
+    for param in params {
+        // Skip 'req' parameter (request object)
+        if param.name != "req" {
+            path.push_str(&format!("/:{}", param.name));
+        }
+    }
+
+    path
 }
