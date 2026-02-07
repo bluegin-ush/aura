@@ -1,6 +1,6 @@
 # AURA
 
-## El primer lenguaje de programación diseñado para agentes IA
+## Un lenguaje de programación diseñado para agentes IA
 
 > **Los lenguajes de programación fueron diseñados para humanos.**
 > **AURA fue diseñado para máquinas que escriben código.**
