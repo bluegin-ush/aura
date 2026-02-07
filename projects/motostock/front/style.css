@@ -1,0 +1,60 @@
+/* MotoStock - Estilos personalizados */
+
+:root {
+    --primary: #0d6efd;
+    --success: #198754;
+    --warning: #ffc107;
+    --danger: #dc3545;
+}
+
+.hidden { display: none !important; }
+
+.header-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.header-actions h2 { margin: 0; }
+
+/* Status badges */
+.badge {
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: bold;
+}
+.badge-pending { background: var(--warning); color: #000; }
+.badge-in_progress { background: var(--primary); color: #fff; }
+.badge-completed { background: var(--success); color: #fff; }
+
+/* Low stock warning */
+.low-stock { color: var(--danger); font-weight: bold; }
+
+/* Stats cards */
+.stat-value {
+    font-size: 2rem;
+    font-weight: bold;
+    color: var(--primary);
+}
+.stat-label { color: #666; }
+
+/* Action buttons */
+.btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8rem;
+    margin: 0 0.1rem;
+}
+.btn-danger { background: var(--danger); border-color: var(--danger); }
+.btn-success { background: var(--success); border-color: var(--success); }
+
+/* Table improvements */
+table { font-size: 0.9rem; }
+th { background: #f8f9fa; }
+
+/* Responsive */
+@media (max-width: 768px) {
+    .grid { grid-template-columns: 1fr; }
+    nav ul { flex-wrap: wrap; }
+}

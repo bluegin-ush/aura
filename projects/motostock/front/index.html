@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MotoStock - Gestión de Taller</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <nav class="container">
+        <ul>
+            <li><strong>🏍️ MotoStock</strong></li>
+        </ul>
+        <ul>
+            <li><a href="#" onclick="showSection('parts')">Repuestos</a></li>
+            <li><a href="#" onclick="showSection('motos')">Motos</a></li>
+            <li><a href="#" onclick="showSection('orders')">Órdenes</a></li>
+            <li><a href="#" onclick="showSection('reports')">Reportes</a></li>
+        </ul>
+    </nav>
+
+    <main class="container">
+        <!-- Dashboard -->
+        <section id="dashboard">
+            <h2>Dashboard</h2>
+            <div class="grid">
+                <article>
+                    <header>Inventario Total</header>
+                    <div id="inventory-stats" hx-get="http://localhost:8081/reportsInventory" hx-trigger="load" hx-swap="innerHTML">
+                        Cargando...
+                    </div>
+                </article>
+                <article>
+                    <header>Stock Bajo</header>
+                    <div id="low-stock-count" hx-get="http://localhost:8081/reportsLowStock" hx-trigger="load" hx-swap="innerHTML">
+                        Cargando...
+                    </div>
+                </article>
+                <article>
+                    <header>Este Mes</header>
+                    <div id="monthly-stats" hx-get="http://localhost:8081/reportsMonthly" hx-trigger="load" hx-swap="innerHTML">
+                        Cargando...
+                    </div>
+                </article>
+            </div>
+        </section>
+
+        <!-- Repuestos -->
+        <section id="parts" class="hidden">
+            <div class="header-actions">
+                <h2>Repuestos</h2>
+                <button onclick="showModal('part-modal')">+ Nuevo Repuesto</button>
+            </div>
+            <input type="search" id="parts-search" placeholder="Buscar repuestos..."
+                   hx-get="http://localhost:8081/partsSearch"
+                   hx-trigger="keyup changed delay:300ms"
+                   hx-target="#parts-table"
+                   hx-include="this"
+                   name="q">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Código</th>
+                        <th>Nombre</th>
+                        <th>Marca</th>
+                        <th>Precio</th>
+                        <th>Stock</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="parts-table" hx-get="http://localhost:8081/parts" hx-trigger="load, partsChanged from:body" hx-swap="innerHTML">
+                    <tr><td colspan="6">Cargando...</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- Motos -->
+        <section id="motos" class="hidden">
+            <div class="header-actions">
+                <h2>Motos</h2>
+                <button onclick="showModal('moto-modal')">+ Nueva Moto</button>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Patente</th>
+                        <th>Marca</th>
+                        <th>Modelo</th>
+                        <th>Año</th>
+                        <th>Dueño</th>
+                        <th>Teléfono</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="motos-table" hx-get="http://localhost:8081/motos" hx-trigger="load, motosChanged from:body" hx-swap="innerHTML">
+                    <tr><td colspan="7">Cargando...</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- Órdenes -->
+        <section id="orders" class="hidden">
+            <div class="header-actions">
+                <h2>Órdenes de Trabajo</h2>
+                <button onclick="showModal('order-modal')">+ Nueva Orden</button>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Moto</th>
+                        <th>Descripción</th>
+                        <th>Estado</th>
+                        <th>Fecha</th>
+                        <th>Total</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="orders-table" hx-get="http://localhost:8081/orders" hx-trigger="load, ordersChanged from:body" hx-swap="innerHTML">
+                    <tr><td colspan="7">Cargando...</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- Reportes -->
+        <section id="reports" class="hidden">
+            <h2>Reportes</h2>
+            <div class="grid">
+                <article>
+                    <header>Repuestos con Stock Bajo</header>
+                    <table>
+                        <thead>
+                            <tr><th>Código</th><th>Nombre</th><th>Stock</th><th>Mínimo</th><th>Pedir</th></tr>
+                        </thead>
+                        <tbody id="low-stock-table" hx-get="http://localhost:8081/reportsLowStock" hx-trigger="load" hx-swap="innerHTML">
+                        </tbody>
+                    </table>
+                </article>
+            </div>
+        </section>
+    </main>
+
+    <!-- Modal Nuevo Repuesto -->
+    <dialog id="part-modal">
+        <article>
+            <header>
+                <button aria-label="Close" rel="prev" onclick="closeModal('part-modal')"></button>
+                <h3>Nuevo Repuesto</h3>
+            </header>
+            <form id="part-form" onsubmit="createPart(event)">
+                <input name="code" placeholder="Código (ej: ACE-001)" required>
+                <input name="name" placeholder="Nombre" required>
+                <input name="brand" placeholder="Marca">
+                <input name="price" type="number" step="0.01" placeholder="Precio" required>
+                <input name="stock" type="number" placeholder="Stock inicial" value="0">
+                <input name="min_stock" type="number" placeholder="Stock mínimo" value="5">
+                <button type="submit">Crear</button>
+            </form>
+        </article>
+    </dialog>
+
+    <!-- Modal Nueva Moto -->
+    <dialog id="moto-modal">
+        <article>
+            <header>
+                <button aria-label="Close" rel="prev" onclick="closeModal('moto-modal')"></button>
+                <h3>Nueva Moto</h3>
+            </header>
+            <form id="moto-form" onsubmit="createMoto(event)">
+                <input name="plate" placeholder="Patente (ej: AB123CD)" required>
+                <input name="brand" placeholder="Marca" required>
+                <input name="model" placeholder="Modelo" required>
+                <input name="year" type="number" placeholder="Año" required>
+                <input name="owner_name" placeholder="Nombre del dueño" required>
+                <input name="owner_phone" placeholder="Teléfono">
+                <button type="submit">Crear</button>
+            </form>
+        </article>
+    </dialog>
+
+    <!-- Modal Nueva Orden -->
+    <dialog id="order-modal">
+        <article>
+            <header>
+                <button aria-label="Close" rel="prev" onclick="closeModal('order-modal')"></button>
+                <h3>Nueva Orden de Trabajo</h3>
+            </header>
+            <form id="order-form" onsubmit="createOrder(event)">
+                <select name="moto_id" id="moto-select" required>
+                    <option value="">Seleccionar moto...</option>
+                </select>
+                <input name="description" placeholder="Descripción del trabajo" required>
+                <button type="submit">Crear</button>
+            </form>
+        </article>
+    </dialog>
+
+    <script src="app.js"></script>
+</body>
+</html>
