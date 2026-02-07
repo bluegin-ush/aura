@@ -72,6 +72,9 @@ pub enum Token {
     #[token("\n")]
     Newline,
 
+    #[token(";")]
+    Semicolon,
+
     // ═══════════════════════════════════════════════════════════
     // OPERADORES
     // ═══════════════════════════════════════════════════════════
@@ -98,6 +101,9 @@ pub enum Token {
 
     #[token("->")]
     Arrow,
+
+    #[token("|>")]
+    PipeOp,
 
     #[token("|")]
     Pipe,
@@ -293,7 +299,29 @@ pub enum Token {
     // ═══════════════════════════════════════════════════════════
     #[regex(r#""([^"\\]|\\.)*""#, |lex| {
         let s = lex.slice();
-        s[1..s.len()-1].to_string()
+        let inner = &s[1..s.len()-1];
+        // Process escape sequences
+        let mut result = String::new();
+        let mut chars = inner.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == '\\' {
+                match chars.next() {
+                    Some('n') => result.push('\n'),
+                    Some('t') => result.push('\t'),
+                    Some('r') => result.push('\r'),
+                    Some('\\') => result.push('\\'),
+                    Some('"') => result.push('"'),
+                    Some(other) => {
+                        result.push('\\');
+                        result.push(other);
+                    }
+                    None => result.push('\\'),
+                }
+            } else {
+                result.push(c);
+            }
+        }
+        result
     })]
     String(String),
 

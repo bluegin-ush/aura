@@ -6,6 +6,62 @@ use serde::{Deserialize, Serialize};
 use crate::parser::{Program, Definition, Expr, BinaryOp, UnaryOp, FuncDef, TypeDef};
 use crate::caps::http::{http_get, http_post, http_put, http_delete};
 
+/// Convierte serde_json::Value a Value de AURA
+fn json_to_value(json: serde_json::Value) -> Value {
+    match json {
+        serde_json::Value::Null => Value::Nil,
+        serde_json::Value::Bool(b) => Value::Bool(b),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                Value::Int(i)
+            } else if let Some(f) = n.as_f64() {
+                Value::Float(f)
+            } else {
+                Value::Nil
+            }
+        }
+        serde_json::Value::String(s) => Value::String(s),
+        serde_json::Value::Array(arr) => {
+            Value::List(arr.into_iter().map(json_to_value).collect())
+        }
+        serde_json::Value::Object(obj) => {
+            let mut map = HashMap::new();
+            for (k, v) in obj {
+                map.insert(k, json_to_value(v));
+            }
+            Value::Record(map)
+        }
+    }
+}
+
+/// Convierte Value de AURA a serde_json::Value
+fn value_to_json(value: &Value) -> serde_json::Value {
+    match value {
+        Value::Nil => serde_json::Value::Null,
+        Value::Bool(b) => serde_json::Value::Bool(*b),
+        Value::Int(n) => serde_json::Value::Number((*n).into()),
+        Value::Float(f) => {
+            serde_json::Number::from_f64(*f)
+                .map(serde_json::Value::Number)
+                .unwrap_or(serde_json::Value::Null)
+        }
+        Value::String(s) => serde_json::Value::String(s.clone()),
+        Value::List(l) => {
+            serde_json::Value::Array(l.iter().map(value_to_json).collect())
+        }
+        Value::Record(r) => {
+            let obj: serde_json::Map<String, serde_json::Value> = r.iter()
+                .map(|(k, v)| (k.clone(), value_to_json(v)))
+                .collect();
+            serde_json::Value::Object(obj)
+        }
+        Value::Function(name) => serde_json::Value::String(format!("<fn {}>", name)),
+        Value::Native { type_id, handle } => {
+            serde_json::Value::String(format!("<{} #{}>", type_id, handle))
+        }
+    }
+}
+
 /// Valor en runtime
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Value {
@@ -224,17 +280,21 @@ impl VM {
 
             // Identificador
             Expr::Ident(name) => {
-                // Primero buscar en variables
+                // Primero buscar en variables locales
                 if let Some(val) = self.env.get(name) {
                     return Ok(val);
                 }
-                // Luego buscar en funciones
+                // Luego buscar en funciones definidas
                 if self.env.get_function(name).is_some() {
                     return Ok(Value::Function(name.clone()));
                 }
                 // Luego buscar en tipos
                 if self.env.get_type(name).is_some() {
                     return Ok(Value::Function(name.clone())); // Tipos como constructores
+                }
+                // Finalmente, verificar si es un builtin
+                if Self::is_builtin(name) {
+                    return Ok(Value::Function(name.clone()));
                 }
                 Err(RuntimeError::new(format!("Variable no definida: {}", name)))
             }
@@ -377,11 +437,14 @@ impl VM {
 
     /// Evalúa una llamada a función
     fn eval_call(&mut self, func: &Expr, args: &[Expr]) -> Result<Value, RuntimeError> {
-        // Detectar llamadas a métodos de objetos especiales (http.get, http.post, etc.)
+        // Detectar llamadas a métodos de módulos (http.get, json.parse, etc.)
         if let Expr::FieldAccess(obj, method) = func {
             if let Expr::Ident(obj_name) = obj.as_ref() {
-                if obj_name == "http" {
-                    return self.call_http_method(method, args);
+                match obj_name.as_str() {
+                    "http" => return self.call_http_method(method, args),
+                    "json" => return self.call_json_method(method, args),
+                    "math" => return self.call_math_method(method, args),
+                    _ => {}
                 }
             }
         }
@@ -457,6 +520,95 @@ impl VM {
         }
     }
 
+    /// Llama a un método JSON (json.parse, json.stringify)
+    fn call_json_method(&mut self, method: &str, args: &[Expr]) -> Result<Value, RuntimeError> {
+        let arg_values: Result<Vec<_>, _> = args.iter()
+            .map(|a| self.eval(a))
+            .collect();
+        let arg_values = arg_values?;
+
+        match method {
+            "parse" => {
+                match arg_values.first() {
+                    Some(Value::String(s)) => {
+                        // Parse JSON string to Value
+                        match serde_json::from_str::<serde_json::Value>(s) {
+                            Ok(json) => Ok(json_to_value(json)),
+                            Err(e) => Err(RuntimeError::new(format!("Error parsing JSON: {}", e))),
+                        }
+                    }
+                    _ => Err(RuntimeError::new("json.parse requiere un string")),
+                }
+            }
+            "stringify" => {
+                match arg_values.first() {
+                    Some(v) => {
+                        match serde_json::to_string(&value_to_json(v)) {
+                            Ok(s) => Ok(Value::String(s)),
+                            Err(e) => Err(RuntimeError::new(format!("Error stringifying JSON: {}", e))),
+                        }
+                    }
+                    None => Err(RuntimeError::new("json.stringify requiere un argumento")),
+                }
+            }
+            _ => Err(RuntimeError::new(format!("Método JSON no soportado: {}", method))),
+        }
+    }
+
+    /// Llama a un método Math (math.sqrt, math.pow, etc.)
+    fn call_math_method(&mut self, method: &str, args: &[Expr]) -> Result<Value, RuntimeError> {
+        let arg_values: Result<Vec<_>, _> = args.iter()
+            .map(|a| self.eval(a))
+            .collect();
+        let arg_values = arg_values?;
+
+        match method {
+            "sqrt" => {
+                match arg_values.first() {
+                    Some(Value::Int(n)) => Ok(Value::Float((*n as f64).sqrt())),
+                    Some(Value::Float(f)) => Ok(Value::Float(f.sqrt())),
+                    _ => Err(RuntimeError::new("math.sqrt requiere número")),
+                }
+            }
+            "pow" => {
+                match (arg_values.get(0), arg_values.get(1)) {
+                    (Some(Value::Int(base)), Some(Value::Int(exp))) => {
+                        Ok(Value::Int(base.pow(*exp as u32)))
+                    }
+                    (Some(Value::Float(base)), Some(Value::Float(exp))) => {
+                        Ok(Value::Float(base.powf(*exp)))
+                    }
+                    (Some(Value::Int(base)), Some(Value::Float(exp))) => {
+                        Ok(Value::Float((*base as f64).powf(*exp)))
+                    }
+                    _ => Err(RuntimeError::new("math.pow requiere (base, exponente)")),
+                }
+            }
+            "floor" => {
+                match arg_values.first() {
+                    Some(Value::Float(f)) => Ok(Value::Int(f.floor() as i64)),
+                    Some(Value::Int(n)) => Ok(Value::Int(*n)),
+                    _ => Err(RuntimeError::new("math.floor requiere número")),
+                }
+            }
+            "ceil" => {
+                match arg_values.first() {
+                    Some(Value::Float(f)) => Ok(Value::Int(f.ceil() as i64)),
+                    Some(Value::Int(n)) => Ok(Value::Int(*n)),
+                    _ => Err(RuntimeError::new("math.ceil requiere número")),
+                }
+            }
+            "round" => {
+                match arg_values.first() {
+                    Some(Value::Float(f)) => Ok(Value::Int(f.round() as i64)),
+                    Some(Value::Int(n)) => Ok(Value::Int(*n)),
+                    _ => Err(RuntimeError::new("math.round requiere número")),
+                }
+            }
+            _ => Err(RuntimeError::new(format!("Método math no soportado: {}", method))),
+        }
+    }
+
     /// Llama a una función definida por el usuario
     fn call_function(&mut self, func: &FuncDef, args: &[Value]) -> Result<Value, RuntimeError> {
         // Crear nuevo entorno con los parámetros
@@ -481,6 +633,21 @@ impl VM {
         result
     }
 
+    /// Verifica si un nombre es una función builtin
+    fn is_builtin(name: &str) -> bool {
+        matches!(name,
+            "print" | "print!" |
+            "len" | "length" |
+            "str" | "int" | "float" | "bool" |
+            "type" |
+            "first" | "last" | "head" | "tail" |
+            "keys" | "values" |
+            "push" | "pop" | "concat" |
+            "abs" | "min" | "max" |
+            "not"
+        )
+    }
+
     /// Llama a una función built-in
     fn call_builtin(&self, name: &str, args: &[Value]) -> Result<Value, RuntimeError> {
         match name {
@@ -490,11 +657,12 @@ impl VM {
                 }
                 Ok(Value::Nil)
             }
-            "len" => {
+            "len" | "length" => {
                 match args.first() {
                     Some(Value::String(s)) => Ok(Value::Int(s.len() as i64)),
                     Some(Value::List(l)) => Ok(Value::Int(l.len() as i64)),
-                    _ => Err(RuntimeError::new("len requiere string o lista")),
+                    Some(Value::Record(r)) => Ok(Value::Int(r.len() as i64)),
+                    _ => Err(RuntimeError::new("len requiere string, lista o record")),
                 }
             }
             "str" => {
@@ -515,6 +683,24 @@ impl VM {
                     _ => Err(RuntimeError::new("int requiere string, float o int")),
                 }
             }
+            "float" => {
+                match args.first() {
+                    Some(Value::String(s)) => {
+                        s.parse::<f64>()
+                            .map(Value::Float)
+                            .map_err(|_| RuntimeError::new("No se puede convertir a float"))
+                    }
+                    Some(Value::Int(n)) => Ok(Value::Float(*n as f64)),
+                    Some(Value::Float(f)) => Ok(Value::Float(*f)),
+                    _ => Err(RuntimeError::new("float requiere string, int o float")),
+                }
+            }
+            "bool" => {
+                match args.first() {
+                    Some(v) => Ok(Value::Bool(self.is_truthy(v))),
+                    None => Ok(Value::Bool(false)),
+                }
+            }
             "type" => {
                 match args.first() {
                     Some(Value::Nil) => Ok(Value::String("nil".to_string())),
@@ -529,7 +715,102 @@ impl VM {
                     None => Ok(Value::String("nil".to_string())),
                 }
             }
-            // TODO: Agregar más builtins (map, filter, etc.)
+            "first" | "head" => {
+                match args.first() {
+                    Some(Value::List(l)) => Ok(l.first().cloned().unwrap_or(Value::Nil)),
+                    Some(Value::String(s)) => Ok(s.chars().next()
+                        .map(|c| Value::String(c.to_string()))
+                        .unwrap_or(Value::Nil)),
+                    _ => Err(RuntimeError::new("first requiere lista o string")),
+                }
+            }
+            "last" => {
+                match args.first() {
+                    Some(Value::List(l)) => Ok(l.last().cloned().unwrap_or(Value::Nil)),
+                    Some(Value::String(s)) => Ok(s.chars().last()
+                        .map(|c| Value::String(c.to_string()))
+                        .unwrap_or(Value::Nil)),
+                    _ => Err(RuntimeError::new("last requiere lista o string")),
+                }
+            }
+            "tail" => {
+                match args.first() {
+                    Some(Value::List(l)) => {
+                        if l.is_empty() {
+                            Ok(Value::List(vec![]))
+                        } else {
+                            Ok(Value::List(l[1..].to_vec()))
+                        }
+                    }
+                    _ => Err(RuntimeError::new("tail requiere lista")),
+                }
+            }
+            "keys" => {
+                match args.first() {
+                    Some(Value::Record(r)) => {
+                        Ok(Value::List(r.keys().map(|k| Value::String(k.clone())).collect()))
+                    }
+                    _ => Err(RuntimeError::new("keys requiere record")),
+                }
+            }
+            "values" => {
+                match args.first() {
+                    Some(Value::Record(r)) => {
+                        Ok(Value::List(r.values().cloned().collect()))
+                    }
+                    _ => Err(RuntimeError::new("values requiere record")),
+                }
+            }
+            "push" => {
+                match (args.get(0), args.get(1)) {
+                    (Some(Value::List(l)), Some(v)) => {
+                        let mut new_list = l.clone();
+                        new_list.push(v.clone());
+                        Ok(Value::List(new_list))
+                    }
+                    _ => Err(RuntimeError::new("push requiere (lista, valor)")),
+                }
+            }
+            "concat" => {
+                match (args.get(0), args.get(1)) {
+                    (Some(Value::List(a)), Some(Value::List(b))) => {
+                        let mut new_list = a.clone();
+                        new_list.extend(b.clone());
+                        Ok(Value::List(new_list))
+                    }
+                    (Some(Value::String(a)), Some(Value::String(b))) => {
+                        Ok(Value::String(format!("{}{}", a, b)))
+                    }
+                    _ => Err(RuntimeError::new("concat requiere dos listas o dos strings")),
+                }
+            }
+            "abs" => {
+                match args.first() {
+                    Some(Value::Int(n)) => Ok(Value::Int(n.abs())),
+                    Some(Value::Float(f)) => Ok(Value::Float(f.abs())),
+                    _ => Err(RuntimeError::new("abs requiere numero")),
+                }
+            }
+            "min" => {
+                match (args.get(0), args.get(1)) {
+                    (Some(Value::Int(a)), Some(Value::Int(b))) => Ok(Value::Int(*a.min(b))),
+                    (Some(Value::Float(a)), Some(Value::Float(b))) => Ok(Value::Float(a.min(*b))),
+                    _ => Err(RuntimeError::new("min requiere dos numeros del mismo tipo")),
+                }
+            }
+            "max" => {
+                match (args.get(0), args.get(1)) {
+                    (Some(Value::Int(a)), Some(Value::Int(b))) => Ok(Value::Int(*a.max(b))),
+                    (Some(Value::Float(a)), Some(Value::Float(b))) => Ok(Value::Float(a.max(*b))),
+                    _ => Err(RuntimeError::new("max requiere dos numeros del mismo tipo")),
+                }
+            }
+            "not" => {
+                match args.first() {
+                    Some(v) => Ok(Value::Bool(!self.is_truthy(v))),
+                    None => Ok(Value::Bool(true)),
+                }
+            }
             _ => Err(RuntimeError::new(format!("Función no definida: {}", name))),
         }
     }
@@ -637,31 +918,48 @@ impl VM {
         }
     }
 
-    /// Interpola variables en un string
-    fn interpolate_string(&self, s: &str) -> Result<String, RuntimeError> {
+    /// Interpola expresiones en un string
+    /// Soporta: "Hello {name}" y "Result: {func()}" y "{a + b}"
+    fn interpolate_string(&mut self, s: &str) -> Result<String, RuntimeError> {
         let mut result = String::new();
         let mut chars = s.chars().peekable();
 
         while let Some(c) = chars.next() {
             if c == '{' {
-                // Encontrar el nombre de la variable
-                let mut var_name = String::new();
+                // Encontrar el contenido dentro de {}
+                let mut expr_str = String::new();
+                let mut brace_depth = 1;
+
                 while let Some(&next) = chars.peek() {
-                    if next == '}' {
-                        chars.next();
-                        break;
+                    if next == '{' {
+                        brace_depth += 1;
+                        expr_str.push(chars.next().unwrap());
+                    } else if next == '}' {
+                        brace_depth -= 1;
+                        if brace_depth == 0 {
+                            chars.next();
+                            break;
+                        }
+                        expr_str.push(chars.next().unwrap());
+                    } else {
+                        expr_str.push(chars.next().unwrap());
                     }
-                    var_name.push(chars.next().unwrap());
                 }
 
-                // Buscar el valor
-                if let Some(val) = self.env.get(&var_name) {
+                // Primero intentar buscar como variable simple (más rápido)
+                if let Some(val) = self.env.get(&expr_str) {
                     result.push_str(&val.to_string());
                 } else {
-                    // Si no existe, dejar como está
-                    result.push('{');
-                    result.push_str(&var_name);
-                    result.push('}');
+                    // Parsear y evaluar como expresión
+                    match self.eval_interpolation_expr(&expr_str) {
+                        Ok(val) => result.push_str(&val.to_string()),
+                        Err(_) => {
+                            // Si falla, dejar como está
+                            result.push('{');
+                            result.push_str(&expr_str);
+                            result.push('}');
+                        }
+                    }
                 }
             } else {
                 result.push(c);
@@ -669,6 +967,23 @@ impl VM {
         }
 
         Ok(result)
+    }
+
+    /// Evalúa una expresión de interpolación
+    fn eval_interpolation_expr(&mut self, expr_str: &str) -> Result<Value, RuntimeError> {
+        use crate::lexer::tokenize;
+        use crate::parser::parse_expression_complete;
+
+        // Tokenizar la expresión
+        let tokens = tokenize(expr_str)
+            .map_err(|e| RuntimeError::new(format!("Error tokenizing interpolation: {:?}", e)))?;
+
+        // Parsear como expresión completa (debe consumir todos los tokens)
+        let expr = parse_expression_complete(tokens)
+            .map_err(|e| RuntimeError::new(format!("Error parsing interpolation: {}", e.message)))?;
+
+        // Evaluar
+        self.eval(&expr)
     }
 
     /// Verifica si un valor es "truthy"

@@ -298,7 +298,7 @@ fn parse_expr(parser: &mut Parser) -> Result<Expr, ParseError> {
 fn parse_pipe(parser: &mut Parser) -> Result<Expr, ParseError> {
     let mut left = parse_comparison(parser)?;
 
-    while let Some(Token::Pipe) = parser.peek() {
+    while let Some(Token::PipeOp) = parser.peek() {
         parser.advance();
         let right = parse_comparison(parser)?;
 
@@ -399,12 +399,30 @@ fn parse_unary(parser: &mut Parser) -> Result<Expr, ParseError> {
     }
 }
 
+/// Determina si una expresión puede ser llamada como función
+fn is_callable(expr: &Expr) -> bool {
+    matches!(expr,
+        Expr::Ident(_) |
+        Expr::FieldAccess(_, _) |
+        Expr::SafeAccess(_, _) |
+        Expr::Call { .. } |
+        Expr::Lambda { .. }
+    )
+}
+
 fn parse_call(parser: &mut Parser) -> Result<Expr, ParseError> {
     let mut expr = parse_primary(parser)?;
 
     loop {
         match parser.peek() {
             Some(Token::LParen) => {
+                // Solo permitir llamadas en expresiones que pueden ser funciones
+                // (identificadores, accesos a campos, otras llamadas, lambdas)
+                // No en literales (Int, Float, String, Bool, etc.)
+                if !is_callable(&expr) {
+                    break;
+                }
+
                 parser.advance();
                 let mut args = Vec::new();
 
@@ -428,7 +446,7 @@ fn parse_call(parser: &mut Parser) -> Result<Expr, ParseError> {
             }
             Some(Token::Bang) => {
                 // Check if it's a call with effect: func!(args)
-                if parser.peek_ahead(1) == Some(&Token::LParen) {
+                if parser.peek_ahead(1) == Some(&Token::LParen) && is_callable(&expr) {
                     parser.advance(); // consume !
                     parser.advance(); // consume (
 
@@ -563,11 +581,202 @@ fn parse_primary(parser: &mut Parser) -> Result<Expr, ParseError> {
             parser.consume(Token::RBrace)?;
             Ok(Expr::Record(fields))
         }
+        Some(Token::Colon) => {
+            // Block expression: : expr1; expr2; expr3
+            parser.advance();
+            parse_block(parser)
+        }
+        Some(Token::If) => {
+            // If expression: if cond then_expr else else_expr
+            parser.advance();
+            let condition = parse_expr(parser)?;
+            let then_branch = parse_expr(parser)?;
+
+            let else_branch = if matches!(parser.peek(), Some(Token::Else)) {
+                parser.advance();
+                Some(Box::new(parse_expr(parser)?))
+            } else {
+                None
+            };
+
+            Ok(Expr::If {
+                condition: Box::new(condition),
+                then_branch: Box::new(then_branch),
+                else_branch,
+            })
+        }
+        Some(Token::Question) => {
+            // Match expression: ? cond -> expr | cond -> expr | _ -> expr
+            parser.advance();
+            parse_match_expr(parser)
+        }
+        Some(Token::Minus) => {
+            // Unary minus: -expr
+            parser.advance();
+            let expr = parse_primary(parser)?;
+            Ok(Expr::UnaryOp {
+                op: UnaryOp::Neg,
+                expr: Box::new(expr),
+            })
+        }
+        Some(Token::Bang) => {
+            // Unary not: !expr
+            parser.advance();
+            let expr = parse_primary(parser)?;
+            Ok(Expr::UnaryOp {
+                op: UnaryOp::Not,
+                expr: Box::new(expr),
+            })
+        }
         _ => Err(ParseError {
             message: format!("Unexpected token: {:?}", parser.peek()),
             span: parser.current().map(|t| t.span.clone()).unwrap_or(Span::new(0, 0)),
         }),
     }
+}
+
+/// Parse a block expression (: expr1; expr2; exprN)
+/// Each `name = expr` inside becomes a Let binding
+/// The last expression is the return value
+/// Block ends at newline or EOF
+fn parse_block(parser: &mut Parser) -> Result<Expr, ParseError> {
+    let mut exprs = Vec::new();
+
+    // Skip leading whitespace (but not newlines - those end the block on same line)
+    while matches!(parser.peek(), Some(Token::Semicolon)) {
+        parser.advance();
+    }
+
+    while !parser.is_at_end() {
+        // Newline ends the block (return to top-level parsing)
+        if matches!(parser.peek(), Some(Token::Newline)) {
+            break;
+        }
+
+        // Try to parse a let binding (name = expr) or regular expression
+        let expr = parse_block_item(parser)?;
+        exprs.push(expr);
+
+        // Semicolon separates expressions in the block
+        if matches!(parser.peek(), Some(Token::Semicolon)) {
+            parser.advance();
+            // Skip additional semicolons
+            while matches!(parser.peek(), Some(Token::Semicolon)) {
+                parser.advance();
+            }
+        } else {
+            // No semicolon - block ends (newline, EOF, or other token)
+            break;
+        }
+    }
+
+    if exprs.is_empty() {
+        Ok(Expr::Nil)
+    } else {
+        Ok(Expr::Block(exprs))
+    }
+}
+
+
+/// Parse a single item in a block (either a let binding or expression)
+fn parse_block_item(parser: &mut Parser) -> Result<Expr, ParseError> {
+    // Check if this looks like a let binding: Ident = expr (but NOT Ident() = or Ident(x) =)
+    if let Some(Token::Ident(name)) = parser.peek().cloned() {
+        if parser.peek_ahead(1) == Some(&Token::Eq) {
+            // Make sure it's not a function definition (no parens before =)
+            parser.advance(); // consume ident
+            parser.advance(); // consume =
+            let value = parse_expr(parser)?;
+            return Ok(Expr::Let {
+                name,
+                value: Box::new(value),
+            });
+        }
+    }
+
+    // Otherwise parse as a regular expression
+    parse_expr(parser)
+}
+
+/// Parse a match/conditional expression: ? cond -> expr | cond -> expr | _ -> default
+fn parse_match_expr(parser: &mut Parser) -> Result<Expr, ParseError> {
+    let mut arms = Vec::new();
+
+    loop {
+        // Skip newlines between arms
+        parser.skip_newlines();
+
+        // Check for wildcard pattern
+        let pattern = if matches!(parser.peek(), Some(Token::Underscore)) {
+            parser.advance();
+            Pattern::Wildcard
+        } else {
+            // Parse condition expression as pattern
+            let expr = parse_comparison(parser)?;
+            Pattern::Literal(expr)
+        };
+
+        // Expect ->
+        if !matches!(parser.peek(), Some(Token::Arrow)) {
+            return Err(ParseError {
+                message: format!("Expected '->' in match arm, found {:?}", parser.peek()),
+                span: parser.current().map(|t| t.span.clone()).unwrap_or(Span::new(0, 0)),
+            });
+        }
+        parser.advance();
+
+        // Parse body expression
+        let body = parse_comparison(parser)?;
+
+        arms.push(MatchArm { pattern, body });
+
+        // Check for more arms (|)
+        if matches!(parser.peek(), Some(Token::Pipe)) {
+            parser.advance();
+        } else {
+            break;
+        }
+    }
+
+    // Create match expression with dummy expression (the condition is in the patterns)
+    // For now, we'll evaluate patterns as boolean conditions
+    if arms.is_empty() {
+        return Err(ParseError {
+            message: "Match expression requires at least one arm".to_string(),
+            span: parser.current().map(|t| t.span.clone()).unwrap_or(Span::new(0, 0)),
+        });
+    }
+
+    // Convert to If chain for simple conditional matching
+    // ? cond1 -> expr1 | cond2 -> expr2 | _ -> default
+    // becomes: if cond1 then expr1 else if cond2 then expr2 else default
+    let mut result = None;
+
+    for arm in arms.into_iter().rev() {
+        let body_expr = arm.body;
+        match arm.pattern {
+            Pattern::Wildcard => {
+                result = Some(body_expr);
+            }
+            Pattern::Literal(cond) => {
+                let else_branch = result.map(Box::new);
+                result = Some(Expr::If {
+                    condition: Box::new(cond),
+                    then_branch: Box::new(body_expr),
+                    else_branch,
+                });
+            }
+            _ => {
+                // Other patterns not yet supported, treat as condition
+                result = Some(body_expr);
+            }
+        }
+    }
+
+    result.ok_or_else(|| ParseError {
+        message: "Empty match expression".to_string(),
+        span: parser.current().map(|t| t.span.clone()).unwrap_or(Span::new(0, 0)),
+    })
 }
 
 /// Parse a function definition
@@ -704,6 +913,29 @@ pub fn parse_expression(tokens: Vec<Spanned<Token>>) -> Result<Expr, ParseError>
     let mut parser = Parser::new(tokens);
     parser.skip_newlines();
     parse_expr(&mut parser)
+}
+
+/// Parsea una expresion completa, fallando si quedan tokens sin consumir
+/// Usado para interpolación de strings donde queremos asegurar parsing completo
+pub fn parse_expression_complete(tokens: Vec<Spanned<Token>>) -> Result<Expr, ParseError> {
+    let mut parser = Parser::new(tokens);
+    parser.skip_newlines();
+    let expr = parse_expr(&mut parser)?;
+
+    // Saltar newlines finales
+    parser.skip_newlines();
+
+    // Verificar que no quedan tokens
+    if !parser.is_at_end() {
+        let remaining = parser.current().map(|t| format!("{:?}", t.value))
+            .unwrap_or_else(|| "unknown".to_string());
+        return Err(ParseError {
+            message: format!("Tokens no consumidos después de la expresión: {}", remaining),
+            span: parser.current().map(|t| t.span.clone()).unwrap_or(Span { start: 0, end: 0 }),
+        });
+    }
+
+    Ok(expr)
 }
 
 /// Parsea una definicion de funcion (para REPL)
