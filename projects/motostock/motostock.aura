@@ -1,0 +1,30 @@
++db +json
+
+# MotoStock - API de Gestión de Stock para Taller de Motos
+
+# Helper para obtener conexión (llama con conn())
+conn = db.connect("sqlite:./motostock.db")
+
+# Health check
+get_health = {status: "ok", service: "motostock", version: "1.0"}
+
+# Listar todos los repuestos
+get_parts = db.query(conn(), "SELECT * FROM parts ORDER BY name", [])
+
+# Obtener un repuesto por ID
+get_part(id) = first(db.query(conn(), "SELECT * FROM parts WHERE id = ?", [id]))
+
+# Crear repuesto (recibe body JSON)
+post_part(code name brand price stock min_stock) = {status: "created", id: db.execute(conn(), "INSERT INTO parts (code, name, brand, price, stock, min_stock) VALUES (?, ?, ?, ?, ?, ?)", [code, name, brand, price, stock, min_stock]).last_insert_id}
+
+# Actualizar precio de repuesto
+put_part(id price) = : db.execute(conn(), "UPDATE parts SET price = ? WHERE id = ?", [price, id]); {status: "updated", id: id}
+
+# Eliminar repuesto
+del_part(id) = : db.execute(conn(), "DELETE FROM parts WHERE id = ?", [id]); {status: "deleted", id: id}
+
+# Repuestos con stock bajo (stock < min_stock)
+get_partsLowStock = db.query(conn(), "SELECT * FROM parts WHERE stock < min_stock ORDER BY name", [])
+
+# Buscar repuestos (usa query param q via req)
+get_partsSearch(req) = db.query(conn(), "SELECT * FROM parts WHERE name LIKE ? OR code LIKE ? OR brand LIKE ? ORDER BY name", ["%" ++ req.query.q ++ "%", "%" ++ req.query.q ++ "%", "%" ++ req.query.q ++ "%"])
