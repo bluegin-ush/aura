@@ -160,14 +160,18 @@ impl MockProvider {
                     // Si la línea usa la variable y no hemos agregado la definición
                     if !added && line.contains(var_name) && !line.contains(&format!("{} =", var_name)) {
                         // Agregar definición con valor por defecto inteligente
-                        let default_value = if var_name == "x" || var_name == "n" || var_name == "num" {
-                            "21"
+                        let default_value = if var_name.contains("url") || var_name.contains("endpoint") || var_name.contains("api") {
+                            "\"https://jsonplaceholder.typicode.com\""
+                        } else if var_name.contains("token") || var_name.contains("key") {
+                            "env.get(\"API_KEY\", \"demo-key\")"
                         } else if var_name == "name" || var_name == "s" || var_name == "str" {
                             "\"default\""
                         } else if var_name == "list" || var_name == "items" || var_name == "arr" {
                             "[]"
+                        } else if var_name == "x" || var_name == "n" || var_name == "num" || var_name == "id" {
+                            "1"
                         } else {
-                            "0"
+                            "nil"
                         };
                         result.push(format!("{} = {}", var_name, default_value));
                         added = true;

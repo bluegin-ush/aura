@@ -1,174 +1,199 @@
-# Self-Healing en AURA
+# Self-healing en AURA
 
-## El Problema: El Ciclo Tradicional
+## El problema: el ciclo tradicional
 
-Cuando usás un agente IA para programar, el flujo es así:
+Cuando usás un agente para programar, el flujo es así:
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         FLUJO TRADICIONAL                                   │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│   ┌──────────┐      ┌──────────┐      ┌──────────┐      ┌──────────┐       │
-│   │  Agente  │ ──▶  │  Código  │ ──▶  │ Ejecutar │ ──▶  │  Error   │       │
-│   │  genera  │      │  .py     │      │ python   │      │          │       │
-│   └──────────┘      └──────────┘      └──────────┘      └────┬─────┘       │
-│                                                               │             │
-│        ▲                                                      │             │
-│        │                                                      ▼             │
-│        │                                              ┌──────────┐          │
-│        │◀─────────────────────────────────────────────│  Copiar  │          │
-│        │              (ciclo manual)                  │  error   │          │
-│                                                       └──────────┘          │
-│                                                                             │
-│   Cada error requiere: copiar mensaje → pegar al agente → esperar fix      │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+    Flujo tradicional
+    ─────────────────────────────────────────────────────────────
+
+    Agente ──▶ Código ──▶ Ejecutar ──▶ Error
+      ▲                                  │
+      │                                  ▼
+      └──────── Copiar error ◀───── Humano
+
+    Cada error requiere: copiar mensaje, pegar al agente, esperar, repetir.
 ```
 
-**El problema:**
+El problema:
 - Cada error requiere intervención humana
 - Copiar/pegar mensajes de error
-- Esperar que el agente entienda el contexto
-- Volver a ejecutar
-- Repetir...
+- El agente pierde contexto entre iteraciones
+- Múltiples ciclos hasta que funciona
 
 ---
 
-## La Solución: Self-Healing
+## La solución: self-healing
 
 AURA elimina el ciclo manual:
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           FLUJO AURA                                        │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│   ┌──────────┐      ┌──────────┐      ┌──────────────────────────────┐     │
-│   │  Agente  │ ──▶  │  Código  │ ──▶  │       aura heal              │     │
-│   │  genera  │      │  .aura   │      │                              │     │
-│   └──────────┘      └──────────┘      │  ┌────────┐    ┌────────┐   │     │
-│                                        │  │Ejecutar│───▶│ Error? │   │     │
-│                                        │  └────────┘    └───┬────┘   │     │
-│                                        │                    │ sí     │     │
-│                                        │                    ▼        │     │
-│                                        │              ┌──────────┐   │     │
-│                                        │              │  Agente  │   │     │
-│                                        │              │  repara  │   │     │
-│                                        │              └────┬─────┘   │     │
-│                                        │                   │         │     │
-│                                        │                   ▼         │     │
-│                                        │              ┌──────────┐   │     │
-│                                        │              │Re-ejecuta│   │     │
-│                                        │              └────┬─────┘   │     │
-│                                        │                   │         │     │
-│                                        │                   ▼         │     │
-│                                        │              ┌──────────┐   │     │
-│                                        │              │    OK    │   │     │
-│                                        │              └──────────┘   │     │
-│                                        └──────────────────────────────┘     │
-│                                                                             │
-│   Todo automático. Sin intervención humana.                                 │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+    Flujo AURA
+    ─────────────────────────────────────────────────────────────
+
+    Agente ──▶ Código ──▶ aura heal ──┐
+                              │       │
+                         Ejecutar     │
+                              │       │
+                         ¿Error? ─────┤
+                              │       │
+                         Reparar ◀────┘
+                              │
+                         Re-ejecutar
+                              │
+                             OK
+
+    Todo automático. Sin intervención humana.
 ```
 
 ---
 
-## Demo Práctica
+## Ejemplo práctico: variable de configuración faltante
 
-### Código con error
+Este es uno de los errores más comunes cuando un agente genera código. El agente asume que ciertas variables ya existen.
+
+### Código generado por el agente
 
 ```ruby
-# broken.aura
-goal "calcular el doble de un número"
+# api.aura
++http +json
 
-double(n) = n * 2
-main = double(x)   # ← Error: 'x' no está definida
+goal "consultar usuarios de la API"
+
+get_users = : r = http.get(api_url ++ "/users"); json.parse(r.body)
+main = get_users()
 ```
 
-### Ejecutar self-healing
+El agente generó código que usa `api_url`, pero nunca la definió.
 
-```bash
-$ aura heal broken.aura
+### Ejecutar con self-healing
 
-═══════════════════════════════════════════════════════════════
-   AURA Self-Healing
-═══════════════════════════════════════════════════════════════
+```
+$ aura heal api.aura
 
-📄 File: broken.aura
-🎯 Goal: "calcular el doble de un número"
+Archivo: api.aura
+Goal: "consultar usuarios de la API"
 
-1️⃣  Ejecutando...
-❌  Error: Variable no definida: x
+Ejecutando...
+Error: variable no definida: api_url
 
-2️⃣  Analizando...
-🔍  El goal indica que se quiere calcular un doble.
-    La variable 'x' no está definida.
-    Solución: definir x con un valor numérico.
+Analizando contexto...
+- Se intenta concatenar api_url con "/users"
+- El goal menciona "API"
+- Se necesita una URL base
 
-3️⃣  Fix propuesto:
+Fix propuesto:
 
-    --- Original
-    +++ Fixed
+    +http +json
+    goal "consultar usuarios de la API"
+  + api_url = "https://api.example.com"
+    get_users = : r = http.get(api_url ++ "/users"); json.parse(r.body)
+    main = get_users()
 
-      goal "calcular el doble de un número"
-      double(n) = n * 2
-    + x = 21
-      main = double(x)
+Aplicando...
+Re-ejecutando...
 
-4️⃣  Aplicando fix...
-5️⃣  Re-ejecutando...
-
-✅  Resultado: 42
-
-═══════════════════════════════════════════════════════════════
+Resultado: [{id: 1, name: "Alice"}, {id: 2, name: "Bob"}]
 ```
 
-### Resultado
-
-El código fue reparado automáticamente. Sin copiar errores. Sin intervención humana.
+El agente reparó el código agregando la definición faltante.
 
 ---
 
-## El Rol del `goal`
+## El rol del goal
 
-El `goal` no es solo un comentario. Es **metadata que el agente usa para razonar**:
+El `goal` no es un comentario. Es metadata que el agente usa para razonar sobre la intención.
 
 ### Sin goal
 ```
-Error: Variable no definida: x
-→ Agente: "Voy a definir x = 0" (genérico)
+Error: variable no definida: api_url
+Agente: "Voy a definir api_url = nil" (genérico, no útil)
 ```
 
 ### Con goal
 ```
-Error: Variable no definida: x
-Goal: "calcular el doble de un número"
-→ Agente: "El usuario quiere calcular un doble.
-           x debe ser un número.
-           Voy a definir x = 21 para que el resultado sea 42."
+Error: variable no definida: api_url
+Goal: "consultar usuarios de la API"
+Agente: "El usuario quiere consultar una API.
+         api_url debe ser una URL.
+         Voy a definir api_url con un valor apropiado."
 ```
 
-El `goal` le da **contexto de intención** al agente, no solo contexto de código.
+El goal le da contexto de intención, no solo contexto de código.
+
+---
+
+## Otros errores comunes que se reparan
+
+### Typo en campo de respuesta
+
+```ruby
+goal "mostrar nombre del usuario"
+main = : user = get_user(1); user.username  # API devuelve 'name', no 'username'
+```
+
+Fix: cambia `user.username` a `user.name`
+
+### Capacidad no declarada
+
+```ruby
+# Falta +http
+get_data = http.get("https://api.com/data")
+```
+
+Fix: agrega `+http` al inicio
+
+### División por cero potencial
+
+```ruby
+promedio(lista) = sum(lista) / len(lista)  # Si lista está vacía, divide por 0
+```
+
+Fix: agrega validación o valor por defecto
+
+---
+
+## Arquitectura
+
+```
+    Runtime          Error + Goal          Agente
+       │ ─────────────────────────────────▶ │
+       │                                    │
+       │ ◀───────────── Patch ───────────── │
+       │
+       ▼
+    Snapshot (backup)
+       │
+       ▼
+    Aplicar patch
+       │
+       ▼
+    Verificar ──────▶ Si falla, revierte al snapshot
+```
+
+Seguridad:
+- Siempre se crea backup antes de modificar
+- Si el fix no funciona, se revierte
+- Historial disponible con `aura undo`
 
 ---
 
 ## Comandos
 
 ```bash
-# Demo de self-healing (no modifica el archivo)
-aura heal file.aura
+# Ver el fix propuesto (no modifica)
+aura heal archivo.aura
 
-# Aplicar el fix automáticamente
-aura heal file.aura --apply
+# Aplicar el fix
+aura heal archivo.aura --apply
 
-# Usar un proveedor específico
-aura heal file.aura --provider claude    # Anthropic API
-aura heal file.aura --provider openai    # OpenAI API
-aura heal file.aura --provider ollama    # Local (Ollama)
+# Usar proveedor específico
+aura heal archivo.aura --provider claude
+aura heal archivo.aura --provider openai
+aura heal archivo.aura --provider ollama
 
-# Ver historial de fixes
+# Historial de cambios
 aura undo --list
 
 # Revertir último fix
@@ -177,121 +202,24 @@ aura undo
 
 ---
 
-## Arquitectura
+## Proveedores
 
-```
-┌─────────────────┐     Error + Goal      ┌─────────────────┐
-│     Runtime     │ ────────────────────▶ │     Agente      │
-│      AURA       │                       │  (Claude/GPT)   │
-│                 │ ◀──────────────────── │                 │
-└────────┬────────┘        Patch          └─────────────────┘
-         │
-         ▼
-┌─────────────────┐
-│    Snapshot     │  ← Backup antes de aplicar
-│    (backup)     │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Aplicar Patch  │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│   Verificar     │ ──▶ Si falla, revierte al snapshot
-│   ejecución     │
-└─────────────────┘
-```
-
-**Seguridad:**
-- Siempre se crea un snapshot antes de modificar
-- Si el fix no funciona, se revierte automáticamente
-- Historial de cambios para `aura undo`
-
----
-
-## Proveedores Soportados
-
-| Proveedor | Comando | Requisito |
-|-----------|---------|-----------|
-| Mock | `--provider mock` | Ninguno (demo) |
-| Claude | `--provider claude` | `ANTHROPIC_API_KEY` |
-| OpenAI | `--provider openai` | `OPENAI_API_KEY` |
-| Ollama | `--provider ollama` | Ollama corriendo local |
-
-```bash
-# Sin API key (usa mock para demo)
-aura heal broken.aura
-
-# Con Claude
-ANTHROPIC_API_KEY=sk-xxx aura heal broken.aura --provider claude
-
-# Con Ollama local (gratis)
-aura heal broken.aura --provider ollama
-```
-
----
-
-## Por Qué Esto Importa
-
-### Para el programador
-- No más copiar/pegar errores
-- Ciclo de desarrollo más rápido
-- El agente tiene contexto completo (código + goal + error)
-
-### Para el agente
-- Acceso directo al error real
-- Conoce la intención (`goal`)
-- Puede verificar si su fix funciona
-- Loop cerrado de feedback
-
-### Para el costo
-- Menos tokens desperdiciados en ida y vuelta
-- Fixes más precisos = menos iteraciones
-- Automatización reduce tiempo humano
-
----
-
-## Ejemplo Avanzado: API con múltiples errores
-
-```ruby
-# api.aura
-+http +json
-
-goal "API que obtiene usuarios y los formatea"
-
-get_user(id) = : r = http.get(base_url ++ "/users/" ++ id); json.parse(r.body)
-format(user) = "Name: {user.name}, Email: {user.emal}"   # typo: emal
-main = : users = get_user(1); format(users)              # users vs user
-```
-
-```bash
-$ aura heal api.aura --apply
-
-Error 1: Variable no definida: base_url
-Fix: base_url = "https://jsonplaceholder.typicode.com"
-
-Error 2: Campo no existe: user.emal
-Fix: Corregido a user.email
-
-Error 3: format espera user, recibe users
-Fix: Renombrado users → user
-
-✅ Resultado: "Name: Leanne Graham, Email: Sincere@april.biz"
-```
-
-El agente corrigió **3 errores en cadena**, automáticamente.
+| Proveedor | Variable de entorno | Notas |
+|-----------|---------------------|-------|
+| mock | ninguna | para demos |
+| claude | `ANTHROPIC_API_KEY` | Anthropic API |
+| openai | `OPENAI_API_KEY` | OpenAI API |
+| ollama | ninguna | requiere Ollama local |
 
 ---
 
 ## Resumen
 
-| Tradicional | AURA Self-Healing |
-|-------------|-------------------|
-| Error → Copiar → Pegar → Esperar → Repetir | Error → Fix automático |
-| Contexto fragmentado | Código + Goal + Error juntos |
-| Humano en el loop | Loop cerrado automático |
-| Múltiples iteraciones | Una ejecución |
+| Tradicional | AURA |
+|-------------|------|
+| Error, copiar, pegar, esperar, repetir | Error, fix automático |
+| Contexto fragmentado | Código + goal + error juntos |
+| Humano en cada iteración | Loop cerrado |
+| Múltiples ciclos | Una ejecución |
 
-**El futuro del desarrollo es que las máquinas corrijan su propio código.**
+El futuro del desarrollo es que las máquinas corrijan su propio código.

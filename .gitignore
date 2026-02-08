@@ -1,2 +1,5 @@
 /target
 *.db
+
+# Configuración local para agentes
+.agent.md

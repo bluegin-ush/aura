@@ -19,29 +19,35 @@
 Un agente IA consume 40 veces menos tokens escribiendo AURA que Python.
 Menos tokens = menos costo = más operaciones por dólar.
 
-### 2. Self-Healing: Se Repara Solo
+### 2. Self-healing: se repara solo
+
+Un agente genera código que usa una variable no definida (error muy común):
 
 ```ruby
-goal "calcular el doble de un número"
++http +json
 
-double(n) = n * 2
-main = double(x)   # ← Error: 'x' no definida
+goal "consultar usuarios de la API"
+
+get_users = : r = http.get(api_url ++ "/users"); json.parse(r.body)
+main = get_users()   # Error: api_url no está definida
 ```
 
 ```
-$ aura heal broken.aura
+$ aura heal api.aura
 
-❌ Error: Variable no definida: x
-🔍 Goal: "calcular el doble de un número"
-🤖 Analizando...
-✅ Fix aplicado: x = 21
+Error: variable no definida: api_url
+Goal: "consultar usuarios de la API"
 
-Resultado: 42
+Fix propuesto:
+  + api_url = "https://api.example.com"
+
+Aplicando...
+Resultado: [{id: 1, name: "Alice"}, ...]
 ```
 
-El código se detecta, analiza y repara automáticamente. El `goal` le dice al agente **qué querías lograr**, no solo qué falló.
+El código se detecta, analiza y repara. El `goal` le dice al agente qué querías lograr, no solo qué falló.
 
-**[→ Ver documentación completa de Self-Healing](SELF-HEALING.md)**
+**[Ver documentación completa](SELF-HEALING.md)**
 
 ### 3. Un Archivo = Todo
 

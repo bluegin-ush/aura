@@ -1,6 +1,9 @@
 # Este archivo tiene un error intencional para demostrar self-healing
+# Caso común: el agente genera código que usa una variable no definida
 
-double(n) = n * 2
++http +json
 
-# Error: 'x' no está definida
-main = double(x)
+goal "consultar usuarios de la API"
+
+get_users = : r = http.get(api_url ++ "/users"); json.parse(r.body)
+main = get_users()
