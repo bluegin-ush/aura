@@ -176,6 +176,10 @@ Desarrollado por un agente IA en **35 minutos**.
 # Capacidades (reemplazan imports)
 +http +json +db
 
+# Modularización: importar archivos .aura
++utils                    # importa utils.aura del mismo directorio
++helpers                  # importa helpers.aura
+
 # Todo es una función
 x = 42                    # x() retorna 42
 double(n) = n * 2         # función con parámetro
@@ -197,6 +201,9 @@ user = {name: "Alice", age: 30}
 
 # Listas
 nums = [1, 2, 3, 4, 5]
+
+# Goals (intención para self-healing)
+goal "descripción de lo que quiero lograr"
 ```
 
 ---
@@ -228,6 +235,24 @@ nums = [1, 2, 3, 4, 5]
    │  ejecución  │
    └─────────────┘
 ```
+
+### Goals: Intención Declarativa
+
+El agente no solo ve el código, también entiende **qué querías lograr**:
+
+```ruby
+goal "obtener usuario de la API y mostrar su perfil"
+
+get_user(id) = : r = http.get("https://api.com/users/{id}"); json.parse(r.body)
+main = get_user(x)  # ← Error: 'x' no definida
+```
+
+Cuando ocurre un error, el agente recibe el `goal` y puede razonar:
+- *"El objetivo es obtener un usuario..."*
+- *"Falta definir el ID del usuario..."*
+- *"Voy a agregar `x = 1` para completar la intención"*
+
+El `goal` mejora la calidad de las reparaciones automáticas.
 
 **Proveedores soportados:**
 - Claude (Anthropic API)
@@ -268,9 +293,12 @@ aura heal broken.aura --provider ollama
 | `+http` | `http.get`, `http.post`, `http.put`, `http.delete` |
 | `+json` | `json.parse`, `json.stringify` |
 | `+db` | `db.connect`, `db.query`, `db.execute` |
+| `+env` | `env.get`, `env.set`, `env.exists` (carga `.env` automático) |
 | `+math` | `sqrt`, `pow`, `sin`, `cos`, `log` |
 | `+time` | `time.now`, `time.format`, `time.parse` |
 | `+crypto` | `crypto.hash`, `crypto.hmac` |
+
+Además, `+nombre` importa `nombre.aura` del directorio actual si no es una capacidad builtin.
 
 ---
 
@@ -282,7 +310,10 @@ aura heal broken.aura --provider ollama
 ✅ Servidor HTTP nativo
 ✅ Self-healing con Claude/OpenAI/Ollama
 ✅ Sistema de snapshots y undo
-✅ 62 tests pasando
+✅ Goals (intención declarativa)
+✅ Variables de entorno (+env)
+✅ Modularización (+archivo)
+✅ 193 tests pasando
 ```
 
 ---

@@ -1,0 +1,9 @@
++http +json
++utils
++math_helpers
+
+# Demuestra multiples imports
+# +utils importa utils.aura
+# +math_helpers importa math_helpers.aura
+
+main = "double(5)=" ++ str(double(5)) ++ ", square(10)=" ++ str(square(10)) ++ ", factorial(4)=" ++ str(factorial(4))

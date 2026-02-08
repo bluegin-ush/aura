@@ -1,0 +1,7 @@
++http +json
++utils
+
+# Este archivo demuestra el uso de imports locales
+# +utils importa utils.aura del mismo directorio
+
+main = : result = double(21); greet("AURA") ++ " El doble de 21 es " ++ str(result)

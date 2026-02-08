@@ -171,6 +171,21 @@ impl<P: AgentProvider> HealingEngine<P> {
         let agent_context = Context::new(&context.source_code)
             .with_surrounding(context.surrounding_code.clone().unwrap_or_default());
 
+        // Construir mensaje con goals si existen
+        let message = if context.goals.is_empty() {
+            error.message.clone()
+        } else {
+            let goals_str = context.goals.iter()
+                .map(|g| format!("- {}", g))
+                .collect::<Vec<_>>()
+                .join("\n");
+            format!(
+                "{}\n\nProgram goals (developer intent):\n{}",
+                error.message,
+                goals_str
+            )
+        };
+
         let mut request = AgentRequest::error(
             &context.source_code,
             &context.file_name,
@@ -178,7 +193,7 @@ impl<P: AgentProvider> HealingEngine<P> {
             context.column,
         )
         .with_full_context(agent_context)
-        .with_message(&error.message);
+        .with_message(&message);
 
         // Agregar intentos previos para evitar repetir soluciones
         for attempt in &self.previous_attempts {
@@ -410,6 +425,9 @@ pub struct HealingContext {
     pub column: usize,
     /// Codigo circundante para mas contexto
     pub surrounding_code: Option<String>,
+    /// Goals declarados en el programa (intenciones del desarrollador)
+    /// El agente usa esto para entender QUE se queria lograr
+    pub goals: Vec<String>,
 }
 
 impl HealingContext {
@@ -421,12 +439,19 @@ impl HealingContext {
             line,
             column,
             surrounding_code: None,
+            goals: Vec::new(),
         }
     }
 
     /// Agrega codigo circundante
     pub fn with_surrounding(mut self, code: impl Into<String>) -> Self {
         self.surrounding_code = Some(code.into());
+        self
+    }
+
+    /// Agrega goals (intenciones del programa)
+    pub fn with_goals(mut self, goals: Vec<String>) -> Self {
+        self.goals = goals;
         self
     }
 
@@ -439,6 +464,7 @@ impl HealingContext {
             line: 1,
             column: 1,
             surrounding_code: None,
+            goals: Vec::new(),
         }
     }
 }

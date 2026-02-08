@@ -16,6 +16,7 @@ pub mod caps;
 pub mod cli_output;
 pub mod error;
 pub mod lexer;
+pub mod loader;
 pub mod parser;
 pub mod reload;
 pub mod server;
@@ -33,6 +34,7 @@ pub use error::{
     format_errors_pretty,
 };
 pub use lexer::{tokenize, Token};
+pub use loader::{load_file, is_builtin_capability, LoadError};
 pub use parser::{parse, parse_expression, parse_function_def, looks_like_function_def, Program, Expr, Type, Definition, FuncDef};
 pub use vm::Value;
 
@@ -45,7 +47,7 @@ pub fn runtime_info() -> serde_json::Value {
         "name": "AURA",
         "version": VERSION,
         "capabilities": [
-            "http", "json", "db", "auth", "ws", "fs", "crypto", "time", "email"
+            "http", "json", "db", "env", "auth", "ws", "fs", "crypto", "time", "email"
         ],
         "features": {
             "hot_reload": true,

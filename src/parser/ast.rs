@@ -23,6 +23,9 @@ pub enum Definition {
     FuncDef(FuncDef),
     ApiDef(ApiDef),
     TestDef(TestDef),
+    /// Goal declaration - metadata that describes intent
+    /// Used for documentation and self-healing context
+    Goal(String),
 }
 
 /// Definición de tipo (@User { ... })

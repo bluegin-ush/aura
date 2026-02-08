@@ -162,6 +162,9 @@ enum SnapshotsAction {
 }
 
 fn main() {
+    // Load environment variables from .env file if present
+    aura::caps::load_dotenv();
+
     let cli = Cli::parse();
 
     match cli.command {
@@ -200,62 +203,18 @@ fn main() {
 
 fn run_file(path: &PathBuf, json_output: bool) {
     use aura::cli_output::{JsonError, RunResult, value_to_json};
+    use aura::loader;
     use std::time::Instant;
 
-    let source = match std::fs::read_to_string(path) {
-        Ok(s) => s,
+    // Load file with imports resolved
+    let program = match loader::load_file(path) {
+        Ok(p) => p,
         Err(e) => {
             if json_output {
-                let result = RunResult::failure(JsonError::file_error(format!("Error reading file: {}", e)));
+                let result = RunResult::failure(JsonError::new("E001", &e.message));
                 println!("{}", result.to_json());
             } else {
-                eprintln!("Error reading file: {}", e);
-            }
-            std::process::exit(1);
-        }
-    };
-
-    // Tokenize
-    let tokens = match aura::tokenize(&source) {
-        Ok(t) => t,
-        Err(errors) => {
-            if json_output {
-                let json_errors: Vec<JsonError> = errors
-                    .iter()
-                    .map(|e| JsonError::from_lex_error(e, &source))
-                    .collect();
-                let result = RunResult::failure(json_errors.into_iter().next().unwrap_or_else(|| {
-                    JsonError::new("E001", "Tokenization error")
-                }));
-                println!("{}", result.to_json());
-            } else {
-                eprintln!("Tokenization errors:");
-                for e in errors {
-                    eprintln!("  [{}-{}]: {}", e.span.start, e.span.end, e.message);
-                }
-            }
-            std::process::exit(1);
-        }
-    };
-
-    // Parse
-    let program = match aura::parse(tokens) {
-        Ok(p) => p,
-        Err(errors) => {
-            if json_output {
-                let json_errors: Vec<JsonError> = errors
-                    .iter()
-                    .map(|e| JsonError::from_parse_error(e, &source))
-                    .collect();
-                let result = RunResult::failure(json_errors.into_iter().next().unwrap_or_else(|| {
-                    JsonError::new("E101", "Parse error")
-                }));
-                println!("{}", result.to_json());
-            } else {
-                eprintln!("Parse errors:");
-                for e in errors {
-                    eprintln!("  {}", e.message);
-                }
+                eprintln!("Error: {}", e);
             }
             std::process::exit(1);
         }
@@ -318,62 +277,43 @@ fn lex_file(path: &PathBuf, json: bool) {
 }
 
 fn parse_file(path: &PathBuf, json: bool) {
-    let source = match std::fs::read_to_string(path) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("Error leyendo archivo: {}", e);
-            std::process::exit(1);
-        }
-    };
+    use aura::loader;
 
-    let tokens = match aura::tokenize(&source) {
-        Ok(t) => t,
-        Err(errors) => {
-            eprintln!("Errores de tokenización:");
-            for e in errors {
-                eprintln!("  {}", e.message);
-            }
+    // Load file with imports resolved
+    let program = match loader::load_file(path) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("Error: {}", e);
             std::process::exit(1);
         }
     };
 
     if json {
-        println!("{}", aura::parser::parse_json(tokens));
+        println!("{}", serde_json::to_string_pretty(&program).unwrap_or_default());
     } else {
-        match aura::parse(tokens) {
-            Ok(program) => {
-                println!("Programa parseado exitosamente:");
-                println!();
-                println!("Capacidades: {:?}", program.capabilities.iter().map(|c| &c.name).collect::<Vec<_>>());
-                println!();
-                for def in &program.definitions {
-                    match def {
-                        aura::Definition::TypeDef(t) => {
-                            println!("@{} {{", t.name);
-                            for f in &t.fields {
-                                println!("  {}: {:?} {:?}", f.name, f.ty, f.annotations.iter().map(|a| &a.name).collect::<Vec<_>>());
-                            }
-                            println!("}}");
-                        }
-                        aura::Definition::FuncDef(f) => {
-                            let effect = if f.has_effect { "!" } else { "" };
-                            println!(
-                                "{}{}({}) = <expr>",
-                                f.name,
-                                effect,
-                                f.params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(" ")
-                            );
-                        }
-                        _ => {}
+        println!("Programa parseado exitosamente:");
+        println!();
+        println!("Capacidades: {:?}", program.capabilities.iter().map(|c| &c.name).collect::<Vec<_>>());
+        println!();
+        for def in &program.definitions {
+            match def {
+                aura::Definition::TypeDef(t) => {
+                    println!("@{} {{", t.name);
+                    for f in &t.fields {
+                        println!("  {}: {:?} {:?}", f.name, f.ty, f.annotations.iter().map(|a| &a.name).collect::<Vec<_>>());
                     }
+                    println!("}}");
                 }
-            }
-            Err(errors) => {
-                eprintln!("Errores de parsing:");
-                for e in errors {
-                    eprintln!("  {}", e.message);
+                aura::Definition::FuncDef(f) => {
+                    let effect = if f.has_effect { "!" } else { "" };
+                    println!(
+                        "{}{}({}) = <expr>",
+                        f.name,
+                        effect,
+                        f.params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(" ")
+                    );
                 }
-                std::process::exit(1);
+                _ => {}
             }
         }
     }
@@ -381,9 +321,11 @@ fn parse_file(path: &PathBuf, json: bool) {
 
 fn check_file(path: &PathBuf, json_output: bool) {
     use aura::cli_output::{CheckResult, JsonError};
+    use aura::loader;
 
     let filename = path.display().to_string();
 
+    // Read source for error reporting
     let source = match std::fs::read_to_string(path) {
         Ok(s) => s,
         Err(e) => {
@@ -399,43 +341,17 @@ fn check_file(path: &PathBuf, json_output: bool) {
         }
     };
 
-    // Tokenize
-    let tokens = match aura::tokenize(&source) {
-        Ok(t) => t,
-        Err(errors) => {
-            if json_output {
-                let json_errors: Vec<JsonError> = errors
-                    .iter()
-                    .map(|e| JsonError::from_lex_error(e, &source))
-                    .collect();
-                let result = CheckResult::failure(&filename, json_errors);
-                println!("{}", result.to_json());
-            } else {
-                eprintln!("Tokenization errors:");
-                for e in errors {
-                    eprintln!("  {}", e.message);
-                }
-            }
-            std::process::exit(1);
-        }
-    };
-
-    // Parse
-    let program = match aura::parse(tokens) {
+    // Load file with imports resolved
+    let program = match loader::load_file(path) {
         Ok(p) => p,
-        Err(errors) => {
+        Err(e) => {
             if json_output {
-                let json_errors: Vec<JsonError> = errors
-                    .iter()
-                    .map(|e| JsonError::from_parse_error(e, &source))
-                    .collect();
-                let result = CheckResult::failure(&filename, json_errors);
+                let result = CheckResult::failure(&filename, vec![
+                    JsonError::new("E001", &e.message)
+                ]);
                 println!("{}", result.to_json());
             } else {
-                eprintln!("Parse errors:");
-                for e in errors {
-                    eprintln!("  {}", e.message);
-                }
+                eprintln!("Error: {}", e);
             }
             std::process::exit(1);
         }
@@ -590,7 +506,7 @@ fn handle_introspection(cmd: &str, vm: &aura::vm::VM) {
                 println!("Variables definidas: {}", vars.join(", "));
             }
         }
-        "?caps" => println!("Capacidades: http, json, db, auth, ws, fs, crypto, time, email"),
+        "?caps" => println!("Capacidades: http, json, db, env, auth, ws, fs, crypto, time, email"),
         "?help" => {
             println!("Comandos de introspeccion:");
             println!("  ?types  - Lista tipos definidos");
@@ -1215,46 +1131,16 @@ fn truncate_str(s: &str, max_len: usize) -> String {
 /// Serve an AURA file as HTTP server
 fn serve_file(path: &PathBuf, port: u16, json_output: bool) {
     use aura::server::start_server;
+    use aura::loader;
 
-    let source = match std::fs::read_to_string(path) {
-        Ok(s) => s,
+    // Load file with imports resolved
+    let program = match loader::load_file(path) {
+        Ok(p) => p,
         Err(e) => {
             if json_output {
-                println!(r#"{{"success":false,"error":"Error reading file: {}"}}"#, e);
+                println!(r#"{{"success":false,"error":"{}"}}"#, e.message.replace('"', "\\\""));
             } else {
-                eprintln!("Error reading file: {}", e);
-            }
-            std::process::exit(1);
-        }
-    };
-
-    // Tokenize
-    let tokens = match aura::tokenize(&source) {
-        Ok(t) => t,
-        Err(errors) => {
-            if json_output {
-                println!(r#"{{"success":false,"error":"Tokenization error"}}"#);
-            } else {
-                eprintln!("Tokenization errors:");
-                for e in errors {
-                    eprintln!("  {}", e.message);
-                }
-            }
-            std::process::exit(1);
-        }
-    };
-
-    // Parse
-    let program = match aura::parse(tokens) {
-        Ok(p) => p,
-        Err(errors) => {
-            if json_output {
-                println!(r#"{{"success":false,"error":"Parse error"}}"#);
-            } else {
-                eprintln!("Parse errors:");
-                for e in errors {
-                    eprintln!("  {}", e.message);
-                }
+                eprintln!("Error: {}", e);
             }
             std::process::exit(1);
         }

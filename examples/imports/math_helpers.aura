@@ -1,0 +1,16 @@
+# Funciones matematicas auxiliares
+
+# Cuadrado de un numero
+square(x) = x * x
+
+# Cubo de un numero
+cube(x) = x * x * x
+
+# Valor absoluto simple (para enteros positivos/negativos)
+abs_val(x) = if x < 0 (0 - x) else x
+
+# Minimo de dos numeros
+min_of(a b) = if a < b a else b
+
+# Maximo de dos numeros
+max_of(a b) = if a > b a else b

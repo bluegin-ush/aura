@@ -1,0 +1,16 @@
+# Funciones utilitarias para importar
+
+# Duplica un numero
+double(x) = x * 2
+
+# Triplica un numero
+triple(x) = x * 3
+
+# Suma dos numeros
+add(a b) = a + b
+
+# Saludo personalizado
+greet(name) = "Hola, {name}!"
+
+# Factorial (recursivo)
+factorial(n) = if n <= 1 1 else n * factorial(n - 1)

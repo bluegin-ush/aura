@@ -846,11 +846,30 @@ fn parse_func_def(parser: &mut Parser) -> Result<FuncDef, ParseError> {
     })
 }
 
-/// Parse a definition (type or function)
+/// Parse a goal declaration: goal "description"
+fn parse_goal(parser: &mut Parser) -> Result<String, ParseError> {
+    parser.consume(Token::Goal)?;
+
+    match parser.peek().cloned() {
+        Some(Token::String(s)) => {
+            parser.advance();
+            Ok(s)
+        }
+        _ => Err(ParseError {
+            message: "Expected string after 'goal'".to_string(),
+            span: parser.current().map(|t| t.span.clone()).unwrap_or(Span::new(0, 0)),
+        }),
+    }
+}
+
+/// Parse a definition (type, function, or goal)
 fn parse_definition(parser: &mut Parser) -> Result<Option<Definition>, ParseError> {
     parser.skip_newlines();
 
     match parser.peek() {
+        Some(Token::Goal) => {
+            Ok(Some(Definition::Goal(parse_goal(parser)?)))
+        }
         Some(Token::At) => {
             Ok(Some(Definition::TypeDef(parse_type_def(parser)?)))
         }
@@ -1074,5 +1093,45 @@ fetch(id) = http.get("users/{id}").json(User)
 
         assert_eq!(program.capabilities.len(), 2);
         assert_eq!(program.definitions.len(), 3); // 1 type + 2 functions
+    }
+
+    #[test]
+    fn test_parse_goal() {
+        let source = r#"+http
+goal "fetch user and return profile"
+main = 42
+"#;
+        let tokens = tokenize(source).unwrap();
+        let program = parse(tokens).unwrap();
+
+        assert_eq!(program.definitions.len(), 2); // 1 goal + 1 function
+        if let Definition::Goal(g) = &program.definitions[0] {
+            assert_eq!(g, "fetch user and return profile");
+        } else {
+            panic!("Expected goal definition");
+        }
+    }
+
+    #[test]
+    fn test_parse_multiple_goals() {
+        let source = r#"+http
+goal "primary goal"
+goal "secondary goal"
+main = 42
+"#;
+        let tokens = tokenize(source).unwrap();
+        let program = parse(tokens).unwrap();
+
+        assert_eq!(program.definitions.len(), 3); // 2 goals + 1 function
+        if let Definition::Goal(g1) = &program.definitions[0] {
+            assert_eq!(g1, "primary goal");
+        } else {
+            panic!("Expected first goal");
+        }
+        if let Definition::Goal(g2) = &program.definitions[1] {
+            assert_eq!(g2, "secondary goal");
+        } else {
+            panic!("Expected second goal");
+        }
     }
 }

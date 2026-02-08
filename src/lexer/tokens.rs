@@ -141,6 +141,9 @@ pub enum Token {
     // ═══════════════════════════════════════════════════════════
     // PALABRAS CLAVE
     // ═══════════════════════════════════════════════════════════
+    #[token("goal")]
+    Goal,
+
     #[token("true")]
     True,
 
@@ -388,7 +391,8 @@ impl Token {
     pub fn is_keyword(&self) -> bool {
         matches!(
             self,
-            Token::True
+            Token::Goal
+                | Token::True
                 | Token::False
                 | Token::Nil
                 | Token::If

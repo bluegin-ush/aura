@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::parser::{Program, Definition, Expr, BinaryOp, UnaryOp, FuncDef, TypeDef};
 use crate::caps::http::{http_get, http_post, http_put, http_delete};
 use crate::caps::db::{db_connect, db_query, db_execute, db_close};
+use crate::caps::env::{env_get, env_get_or, env_set, env_remove, env_exists};
 
 /// Convierte serde_json::Value a Value de AURA
 fn json_to_value(json: serde_json::Value) -> Value {
@@ -212,17 +213,27 @@ impl Environment {
 /// Máquina virtual de AURA
 pub struct VM {
     env: Environment,
+    /// Goals declarados en el programa (metadata para self-healing)
+    goals: Vec<String>,
 }
 
 impl VM {
     pub fn new() -> Self {
         Self {
             env: Environment::new(),
+            goals: Vec::new(),
         }
     }
 
     /// Carga un programa en la VM
     pub fn load(&mut self, program: &Program) {
+        // Cargar goals (metadata)
+        for def in &program.definitions {
+            if let Definition::Goal(goal) = def {
+                self.goals.push(goal.clone());
+            }
+        }
+
         // Cargar tipos
         for def in &program.definitions {
             if let Definition::TypeDef(ty) = def {
@@ -264,9 +275,16 @@ impl VM {
         self.env.list_variables()
     }
 
+    /// Obtiene los goals declarados en el programa
+    /// Los goals son metadata que describe la intención del código
+    pub fn get_goals(&self) -> Vec<String> {
+        self.goals.clone()
+    }
+
     /// Reinicia el estado de la VM
     pub fn reset(&mut self) {
         self.env.clear();
+        self.goals.clear();
     }
 
     /// Llama a una función por nombre con argumentos dados
@@ -461,6 +479,7 @@ impl VM {
                     "json" => return self.call_json_method(method, args),
                     "math" => return self.call_math_method(method, args),
                     "db" => return self.call_db_method(method, args),
+                    "env" => return self.call_env_method(method, args),
                     _ => {}
                 }
             }
@@ -672,6 +691,51 @@ impl VM {
                 }
             }
             _ => Err(RuntimeError::new(format!("Método db no soportado: {}", method))),
+        }
+    }
+
+    /// Llama a un método ENV (env.get, env.set, env.exists, env.remove)
+    fn call_env_method(&mut self, method: &str, args: &[Expr]) -> Result<Value, RuntimeError> {
+        let arg_values: Result<Vec<_>, _> = args.iter()
+            .map(|a| self.eval(a))
+            .collect();
+        let arg_values = arg_values?;
+
+        match method {
+            "get" => {
+                match (arg_values.get(0), arg_values.get(1)) {
+                    (Some(Value::String(name)), Some(default)) => {
+                        // env.get(name, default)
+                        Ok(env_get_or(name, default))
+                    }
+                    (Some(Value::String(name)), None) => {
+                        // env.get(name)
+                        Ok(env_get(name))
+                    }
+                    _ => Err(RuntimeError::new("env.get requiere (nombre) o (nombre, default)")),
+                }
+            }
+            "set" => {
+                match (arg_values.get(0), arg_values.get(1)) {
+                    (Some(Value::String(name)), Some(Value::String(value))) => {
+                        env_set(name, value)
+                    }
+                    _ => Err(RuntimeError::new("env.set requiere (nombre, valor) como strings")),
+                }
+            }
+            "exists" => {
+                match arg_values.first() {
+                    Some(Value::String(name)) => Ok(env_exists(name)),
+                    _ => Err(RuntimeError::new("env.exists requiere nombre como string")),
+                }
+            }
+            "remove" => {
+                match arg_values.first() {
+                    Some(Value::String(name)) => env_remove(name),
+                    _ => Err(RuntimeError::new("env.remove requiere nombre como string")),
+                }
+            }
+            _ => Err(RuntimeError::new(format!("Método env no soportado: {}", method))),
         }
     }
 
@@ -1121,5 +1185,50 @@ mod tests {
         // La interpolación no funciona aún porque name no está en scope al evaluar el string
         // Por ahora verificamos que no crashee
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_goals_stored() {
+        let source = r#"+http
+goal "fetch user data"
+goal "return formatted profile"
+main = 42
+"#;
+        let tokens = tokenize(source).expect("Tokenize failed");
+        let program = parse(tokens).expect("Parse failed");
+        let mut vm = VM::new();
+        vm.load(&program);
+
+        let goals = vm.get_goals();
+        assert_eq!(goals.len(), 2);
+        assert_eq!(goals[0], "fetch user data");
+        assert_eq!(goals[1], "return formatted profile");
+    }
+
+    #[test]
+    fn test_goals_dont_affect_execution() {
+        let source = r#"+http
+goal "this is just metadata"
+double(x) = x * 2
+main = double(21)
+"#;
+        let result = run_code(source);
+        assert_eq!(result.unwrap(), Value::Int(42));
+    }
+
+    #[test]
+    fn test_goals_reset() {
+        let source = r#"+http
+goal "test goal"
+main = 1
+"#;
+        let tokens = tokenize(source).expect("Tokenize failed");
+        let program = parse(tokens).expect("Parse failed");
+        let mut vm = VM::new();
+        vm.load(&program);
+
+        assert_eq!(vm.get_goals().len(), 1);
+        vm.reset();
+        assert_eq!(vm.get_goals().len(), 0);
     }
 }

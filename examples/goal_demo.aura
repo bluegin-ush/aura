@@ -1,0 +1,26 @@
+# Goal Demo - Declaring intent with the goal primitive
+#
+# Goals are metadata that describe WHAT the program intends to do.
+# They are used for:
+# 1. Documentation - making intent clear
+# 2. Self-healing - agent knows what you wanted to achieve
+# 3. Better error recovery - agent can suggest fixes aligned with goals
+
++http +json
+
+goal "fetch user data from API and return formatted profile"
+
+@User {
+    id :i
+    name :s
+    email :s @email
+}
+
+# Simulated user data (in production this would be http.get)
+get_user(id) = {id: id, name: "Alice", email: "alice@example.com"}
+
+# Format profile for display
+format_profile(user) = "Profile: {user.name} <{user.email}>"
+
+# Main function that fulfills the goal
+main = : user = get_user(1); format_profile(user)

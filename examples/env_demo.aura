@@ -1,0 +1,34 @@
++env
+
+// Environment Variables Demo
+// This example shows how to use the +env capability
+
+main = {
+    // Get environment variables
+    let api_key = env.get("API_KEY")
+    let api_url = env.get("API_URL")
+
+    // Get with default value (for missing variables)
+    let db_url = env.get("DATABASE_URL", "sqlite::memory:")
+    let timeout = env.get("TIMEOUT", "30")
+    let missing = env.get("UNDEFINED_VAR", "default_value")
+
+    // Check if variable exists
+    let has_debug = env.exists("APP_DEBUG")
+
+    // Print results
+    print!("API Key: {api_key}")
+    print!("API URL: {api_url}")
+    print!("DB URL: {db_url}")
+    print!("Timeout: {timeout}")
+    print!("Missing var (with default): {missing}")
+    print!("Has APP_DEBUG: {has_debug}")
+
+    // Return summary
+    {
+        api_key: api_key,
+        api_url: api_url,
+        db_url: db_url,
+        has_debug: has_debug
+    }
+}
