@@ -144,25 +144,92 @@ impl MockProvider {
         self.request_count.load(Ordering::SeqCst)
     }
 
+    /// Genera un fix inteligente basado en el error
+    fn generate_smart_fix(&self, error_msg: &str, source: &str) -> String {
+        // Detectar tipo de error y aplicar fix apropiado
+
+        // Error: Variable no definida
+        if error_msg.contains("Variable no definida:") || error_msg.contains("Undefined variable:") {
+            if let Some(var_name) = error_msg.split(':').last().map(|s| s.trim()) {
+                // Buscar dónde se usa la variable y agregar definición antes
+                let lines: Vec<&str> = source.lines().collect();
+                let mut result = Vec::new();
+                let mut added = false;
+
+                for line in &lines {
+                    // Si la línea usa la variable y no hemos agregado la definición
+                    if !added && line.contains(var_name) && !line.contains(&format!("{} =", var_name)) {
+                        // Agregar definición con valor por defecto inteligente
+                        let default_value = if var_name == "x" || var_name == "n" || var_name == "num" {
+                            "21"
+                        } else if var_name == "name" || var_name == "s" || var_name == "str" {
+                            "\"default\""
+                        } else if var_name == "list" || var_name == "items" || var_name == "arr" {
+                            "[]"
+                        } else {
+                            "0"
+                        };
+                        result.push(format!("{} = {}", var_name, default_value));
+                        added = true;
+                    }
+                    result.push(line.to_string());
+                }
+                return result.join("\n");
+            }
+        }
+
+        // Error: Función no definida
+        if error_msg.contains("Función no definida:") || error_msg.contains("Undefined function:") {
+            if let Some(func_name) = error_msg.split(':').last().map(|s| s.trim()) {
+                // Agregar stub de función al inicio
+                let stub = format!("{}(x) = x  # TODO: implementar\n\n", func_name);
+                return format!("{}{}", stub, source);
+            }
+        }
+
+        // Error: División por cero - agregar guard
+        if error_msg.contains("División por cero") || error_msg.contains("division by zero") {
+            return source.replace("/ 0", "/ 1  # Fixed: was dividing by zero");
+        }
+
+        // Error: Tipo incorrecto
+        if error_msg.contains("tipo") || error_msg.contains("type") {
+            // Agregar comentario indicando el problema
+            return format!("# TODO: Fix type error - {}\n{}", error_msg, source);
+        }
+
+        // Fallback: retornar código original con comentario
+        format!("# Auto-fix applied\n{}", source)
+    }
+
+    /// Genera una explicación del fix
+    fn generate_explanation(&self, error_msg: &str) -> String {
+        if error_msg.contains("Variable no definida") || error_msg.contains("Undefined variable") {
+            "La variable no estaba definida. Se agregó una definición con un valor por defecto.".to_string()
+        } else if error_msg.contains("Función no definida") || error_msg.contains("Undefined function") {
+            "La función no existía. Se agregó un stub que debe ser implementado.".to_string()
+        } else if error_msg.contains("División por cero") || error_msg.contains("division by zero") {
+            "Se detectó una división por cero. Se cambió el divisor a 1.".to_string()
+        } else {
+            format!("Error corregido: {}", error_msg)
+        }
+    }
+
     /// Genera una respuesta mock basada en el tipo de evento
     fn generate_mock_response(&self, request: &AgentRequest) -> AgentResponse {
         use super::request::EventType;
 
         let base_response = match request.event_type {
             EventType::Error => {
-                // Simular corrección de error
-                let patch = Patch::new(
-                    request.context.source.clone(),
-                    format!("// Fixed: {}\n{}",
-                        request.message.as_deref().unwrap_or("error"),
-                        request.context.source
-                    ),
-                );
-                AgentResponse::patch(
-                    patch,
-                    "Error corregido automáticamente por el agente mock",
-                    0.85,
-                )
+                // Analizar el error y generar un fix inteligente
+                let error_msg = request.message.as_deref().unwrap_or("");
+                let source = &request.context.source;
+
+                let fixed_code = self.generate_smart_fix(error_msg, source);
+                let explanation = self.generate_explanation(error_msg);
+
+                let patch = Patch::new(source.clone(), fixed_code);
+                AgentResponse::patch(patch, &explanation, 0.95)
             }
             EventType::Missing => {
                 // Simular generación de código faltante

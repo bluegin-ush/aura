@@ -41,6 +41,8 @@ Resultado: 42
 
 El código se detecta, analiza y repara automáticamente. El `goal` le dice al agente **qué querías lograr**, no solo qué falló.
 
+**[→ Ver documentación completa de Self-Healing](SELF-HEALING.md)**
+
 ### 3. Un Archivo = Todo
 
 ```
@@ -113,6 +115,7 @@ Sistema de inventario para taller de motos. **23 endpoints** en **68 líneas**.
 
 | Documento | Contenido |
 |-----------|-----------|
+| **[SELF-HEALING.md](SELF-HEALING.md)** | Cómo funciona, flujo de trabajo, ejemplos |
 | **[SYNTAX.md](SYNTAX.md)** | EBNF formal, quick reference, operadores |
 | **[examples/](examples/)** | Ejemplos funcionando |
 
