@@ -7,14 +7,23 @@
 +http +json +db            # capacidades builtin
 +utils                     # importa utils.aura
 
-# Intención
-goal "descripción"
+# Intención y constraints
+goal "descripción"                        # intención para healing
+invariant api_url != "https://prod.com"   # constraint que healing respeta
+expect result > 0 "debe ser positivo"     # verificación de intención
 
 # Funciones
 x = 42                     # constante (función sin parámetros)
 double(n) = n * 2          # función con parámetro
 add(a b) = a + b           # múltiples parámetros (sin coma)
 greet(name) = "Hola {name}"  # interpolación
+
+# Self-healing automático
+@self_heal
+main = risky_operation()
+
+@self_heal(max_attempts: 5, mode: "technical")
+get_data() = http.get(url)
 
 # Bloques
 process(x) = : a = x * 2; b = a + 10; b

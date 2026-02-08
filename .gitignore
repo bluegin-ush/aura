@@ -3,3 +3,6 @@
 
 # Configuración local para agentes
 .agent.md
+
+# Memoria de healing (proyecto-especifica)
+.aura-memory.json

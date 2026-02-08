@@ -145,7 +145,9 @@ aura check file.aura     # Verificar sintaxis
 ✅ Intérprete completo        ✅ Goals (intención)
 ✅ REPL interactivo           ✅ Variables de entorno (+env)
 ✅ Servidor HTTP nativo       ✅ Modularización (+archivo)
-✅ Self-healing               ✅ 193 tests
+✅ Self-healing               ✅ Invariants (constraints)
+✅ Expect (verificación)      ✅ Memoria de healing
+✅ @self_heal (anotación)     ✅ 226 tests
 ```
 
 ---

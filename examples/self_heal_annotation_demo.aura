@@ -1,0 +1,26 @@
++http +json
+
+goal "obtener datos de usuarios desde una API externa"
+goal "manejar errores de red automaticamente"
+
+# Ejemplo: @self_heal como anotacion de funcion
+# La anotacion marca que esta funcion debe auto-repararse si hay errores
+
+# Funcion simple con self-heal por defecto (3 intentos, modo auto)
+@self_heal
+get_users() = http.get("https://jsonplaceholder.typicode.com/users")
+
+# Funcion con configuracion de self-heal personalizada
+@self_heal(max_attempts: 5, mode: "technical")
+get_user_by_id(id) = http.get("https://jsonplaceholder.typicode.com/users/" ++ str(id))
+
+# Funcion con modo semantico - usa los goals para entender la intencion
+@self_heal(mode: "semantic")
+process_user_data(user) = user.name ++ " <" ++ user.email ++ ">"
+
+# Funcion sin self-heal (comportamiento normal)
+format_greeting(name) = "Hola, " ++ name ++ "!"
+
+# Main con self-heal - si falla, intenta repararse
+@self_heal
+main = 42

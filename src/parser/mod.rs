@@ -628,6 +628,24 @@ fn parse_primary(parser: &mut Parser) -> Result<Expr, ParseError> {
                 expr: Box::new(expr),
             })
         }
+        Some(Token::Expect) => {
+            // Expect expression: expect condition "optional message"
+            parser.advance();
+            let condition = parse_comparison(parser)?;
+
+            // Check for optional message (string literal)
+            let message = if let Some(Token::String(msg)) = parser.peek().cloned() {
+                parser.advance();
+                Some(msg)
+            } else {
+                None
+            };
+
+            Ok(Expr::Expect {
+                condition: Box::new(condition),
+                message,
+            })
+        }
         _ => Err(ParseError {
             message: format!("Unexpected token: {:?}", parser.peek()),
             span: parser.current().map(|t| t.span.clone()).unwrap_or(Span::new(0, 0)),
@@ -779,8 +797,62 @@ fn parse_match_expr(parser: &mut Parser) -> Result<Expr, ParseError> {
     })
 }
 
-/// Parse a function definition
+/// Parse @self_heal annotation with optional parameters
+/// @self_heal or @self_heal(max_attempts: 3, mode: "technical")
+fn parse_self_heal_config(parser: &mut Parser) -> Result<SelfHealConfig, ParseError> {
+    let mut config = SelfHealConfig::default();
+
+    // Check for optional parameters
+    if let Some(Token::LParen) = parser.peek() {
+        parser.advance(); // consume (
+
+        while parser.peek() != Some(&Token::RParen) && !parser.is_at_end() {
+            // Parse key: value pairs
+            if let Some(Token::Ident(key)) = parser.peek().cloned() {
+                parser.advance();
+                parser.consume(Token::Colon)?;
+
+                match key.as_str() {
+                    "max_attempts" => {
+                        if let Some(Token::Int(n)) = parser.peek() {
+                            config.max_attempts = *n as u32;
+                            parser.advance();
+                        }
+                    }
+                    "mode" => {
+                        if let Some(Token::String(s)) = parser.peek().cloned() {
+                            config.mode = HealMode::from_str(&s);
+                            parser.advance();
+                        }
+                    }
+                    _ => {
+                        // Skip unknown parameter value
+                        parser.advance();
+                    }
+                }
+
+                // Skip comma between params
+                if let Some(Token::Comma) = parser.peek() {
+                    parser.advance();
+                }
+            } else {
+                break;
+            }
+        }
+
+        parser.consume(Token::RParen)?;
+    }
+
+    Ok(config)
+}
+
+/// Parse a function definition, optionally preceded by @self_heal
 fn parse_func_def(parser: &mut Parser) -> Result<FuncDef, ParseError> {
+    parse_func_def_with_self_heal(parser, None)
+}
+
+/// Parse a function definition with an optional pre-parsed self_heal config
+fn parse_func_def_with_self_heal(parser: &mut Parser, self_heal: Option<SelfHealConfig>) -> Result<FuncDef, ParseError> {
     let start = parser.current().map(|t| t.span.start).unwrap_or(0);
 
     let name = match parser.peek() {
@@ -843,6 +915,7 @@ fn parse_func_def(parser: &mut Parser) -> Result<FuncDef, ParseError> {
         return_type: None,
         body,
         span: Span::new(start, end),
+        self_heal,
     })
 }
 
@@ -862,13 +935,39 @@ fn parse_goal(parser: &mut Parser) -> Result<String, ParseError> {
     }
 }
 
-/// Parse a definition (type, function, or goal)
+/// Parse an invariant declaration: invariant <expression>
+/// Invariants are constraints that the healing system cannot violate
+fn parse_invariant(parser: &mut Parser) -> Result<Expr, ParseError> {
+    parser.consume(Token::Invariant)?;
+    parse_expr(parser)
+}
+
+/// Parse a definition (type, function, goal, invariant, or annotated function)
 fn parse_definition(parser: &mut Parser) -> Result<Option<Definition>, ParseError> {
     parser.skip_newlines();
 
     match parser.peek() {
         Some(Token::Goal) => {
             Ok(Some(Definition::Goal(parse_goal(parser)?)))
+        }
+        Some(Token::Invariant) => {
+            Ok(Some(Definition::Invariant(parse_invariant(parser)?)))
+        }
+        Some(Token::AnnSelfHeal) => {
+            // @self_heal annotation followed by function definition
+            parser.advance(); // consume @self_heal
+            let config = parse_self_heal_config(parser)?;
+            parser.skip_newlines();
+
+            // Now expect a function definition
+            if let Some(Token::Ident(_)) = parser.peek() {
+                Ok(Some(Definition::FuncDef(parse_func_def_with_self_heal(parser, Some(config))?)))
+            } else {
+                Err(ParseError {
+                    message: "Expected function definition after @self_heal".to_string(),
+                    span: parser.current().map(|t| t.span.clone()).unwrap_or(Span::new(0, 0)),
+                })
+            }
         }
         Some(Token::At) => {
             Ok(Some(Definition::TypeDef(parse_type_def(parser)?)))
@@ -966,6 +1065,7 @@ pub fn parse_function_def(tokens: Vec<Spanned<Token>>) -> Result<FuncDef, ParseE
 
 /// Determina si el input parece ser una definicion de funcion
 /// Una definicion tiene la forma: nombre(params) = expr o nombre = expr
+/// Tambien soporta @self_heal antes de la definicion
 pub fn looks_like_function_def(tokens: &[Spanned<Token>]) -> bool {
     // Buscar patron: Ident seguido de ( o =
     let mut i = 0;
@@ -973,6 +1073,28 @@ pub fn looks_like_function_def(tokens: &[Spanned<Token>]) -> bool {
     // Saltar newlines
     while i < tokens.len() && matches!(tokens[i].value, Token::Newline) {
         i += 1;
+    }
+
+    // Check for @self_heal annotation
+    if i < tokens.len() && matches!(tokens[i].value, Token::AnnSelfHeal) {
+        i += 1;
+        // Skip optional parameters @self_heal(...)
+        if i < tokens.len() && matches!(tokens[i].value, Token::LParen) {
+            let mut paren_depth = 1;
+            i += 1;
+            while i < tokens.len() && paren_depth > 0 {
+                match &tokens[i].value {
+                    Token::LParen => paren_depth += 1,
+                    Token::RParen => paren_depth -= 1,
+                    _ => {}
+                }
+                i += 1;
+            }
+        }
+        // Skip newlines after annotation
+        while i < tokens.len() && matches!(tokens[i].value, Token::Newline) {
+            i += 1;
+        }
     }
 
     // Debe empezar con identificador
@@ -1132,6 +1254,164 @@ main = 42
             assert_eq!(g2, "secondary goal");
         } else {
             panic!("Expected second goal");
+        }
+    }
+
+    #[test]
+    fn test_parse_self_heal_simple() {
+        let source = r#"+http
+@self_heal
+main = 42
+"#;
+        let tokens = tokenize(source).unwrap();
+        let program = parse(tokens).unwrap();
+
+        assert_eq!(program.definitions.len(), 1);
+        if let Definition::FuncDef(f) = &program.definitions[0] {
+            assert_eq!(f.name, "main");
+            assert!(f.self_heal.is_some());
+            let config = f.self_heal.as_ref().unwrap();
+            assert_eq!(config.max_attempts, 3); // default
+            assert_eq!(config.mode, HealMode::Auto); // default
+        } else {
+            panic!("Expected function definition");
+        }
+    }
+
+    #[test]
+    fn test_parse_self_heal_with_params() {
+        let source = r#"+http
+@self_heal(max_attempts: 5, mode: "technical")
+risky_op() = http.get("api/data")
+"#;
+        let tokens = tokenize(source).unwrap();
+        let program = parse(tokens).unwrap();
+
+        assert_eq!(program.definitions.len(), 1);
+        if let Definition::FuncDef(f) = &program.definitions[0] {
+            assert_eq!(f.name, "risky_op");
+            assert!(f.self_heal.is_some());
+            let config = f.self_heal.as_ref().unwrap();
+            assert_eq!(config.max_attempts, 5);
+            assert_eq!(config.mode, HealMode::Technical);
+        } else {
+            panic!("Expected function definition");
+        }
+    }
+
+    #[test]
+    fn test_parse_self_heal_semantic_mode() {
+        let source = r#"+http
+@self_heal(mode: "semantic")
+get_users() = http.get("users")
+"#;
+        let tokens = tokenize(source).unwrap();
+        let program = parse(tokens).unwrap();
+
+        if let Definition::FuncDef(f) = &program.definitions[0] {
+            let config = f.self_heal.as_ref().unwrap();
+            assert_eq!(config.mode, HealMode::Semantic);
+        } else {
+            panic!("Expected function definition");
+        }
+    }
+
+    #[test]
+    fn test_function_without_self_heal() {
+        let source = r#"+http
+normal_func() = 42
+"#;
+        let tokens = tokenize(source).unwrap();
+        let program = parse(tokens).unwrap();
+
+        if let Definition::FuncDef(f) = &program.definitions[0] {
+            assert!(f.self_heal.is_none());
+        } else {
+            panic!("Expected function definition");
+        }
+    }
+
+    #[test]
+    fn test_looks_like_function_def_with_self_heal() {
+        let tokens = tokenize("@self_heal\nmain = 42").unwrap();
+        assert!(looks_like_function_def(&tokens));
+
+        let tokens = tokenize("@self_heal(max_attempts: 3)\nmain = 42").unwrap();
+        assert!(looks_like_function_def(&tokens));
+    }
+
+    #[test]
+    fn test_parse_simple_invariant() {
+        let source = r#"+http
+invariant api_url != "https://production.com"
+main = 42
+"#;
+        let tokens = tokenize(source).unwrap();
+        let program = parse(tokens).unwrap();
+
+        assert_eq!(program.definitions.len(), 2); // 1 invariant + 1 function
+        if let Definition::Invariant(expr) = &program.definitions[0] {
+            // Should be a BinaryOp with NotEq
+            assert!(matches!(expr, Expr::BinaryOp { op: BinaryOp::NotEq, .. }));
+        } else {
+            panic!("Expected invariant definition, got {:?}", program.definitions[0]);
+        }
+    }
+
+    #[test]
+    fn test_parse_multiple_invariants() {
+        let source = r#"+http
+invariant api_url != "https://prod.example.com"
+invariant response != "mock_response"
+goal "safe API calls"
+main = 42
+"#;
+        let tokens = tokenize(source).unwrap();
+        let program = parse(tokens).unwrap();
+
+        assert_eq!(program.definitions.len(), 4); // 2 invariants + 1 goal + 1 function
+
+        // First should be invariant
+        assert!(matches!(&program.definitions[0], Definition::Invariant(_)));
+        // Second should be invariant
+        assert!(matches!(&program.definitions[1], Definition::Invariant(_)));
+        // Third should be goal
+        assert!(matches!(&program.definitions[2], Definition::Goal(_)));
+        // Fourth should be function
+        assert!(matches!(&program.definitions[3], Definition::FuncDef(_)));
+    }
+
+    #[test]
+    fn test_parse_invariant_with_negation() {
+        let source = r#"+http
+invariant !contains(source, "mock_data")
+main = 42
+"#;
+        let tokens = tokenize(source).unwrap();
+        let program = parse(tokens).unwrap();
+
+        if let Definition::Invariant(expr) = &program.definitions[0] {
+            // Should be a UnaryOp with Not
+            assert!(matches!(expr, Expr::UnaryOp { op: UnaryOp::Not, .. }));
+        } else {
+            panic!("Expected invariant definition");
+        }
+    }
+
+    #[test]
+    fn test_parse_invariant_with_comparison() {
+        let source = r#"+http
+invariant max_retries <= 5
+main = 42
+"#;
+        let tokens = tokenize(source).unwrap();
+        let program = parse(tokens).unwrap();
+
+        if let Definition::Invariant(expr) = &program.definitions[0] {
+            // Should be a BinaryOp with LtEq
+            assert!(matches!(expr, Expr::BinaryOp { op: BinaryOp::LtEq, .. }));
+        } else {
+            panic!("Expected invariant definition");
         }
     }
 }

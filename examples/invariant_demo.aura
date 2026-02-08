@@ -1,0 +1,39 @@
+# Invariant Demo - Constraints for Self-Healing
+#
+# Invariants are rules that the healing system MUST respect.
+# If a proposed fix would violate an invariant, it gets rejected.
+#
+# Invariants are evaluated as boolean expressions. They should
+# evaluate to `true` for the program to be valid.
+
++http
+
+# INVARIANTS - These constraints cannot be violated by any fix
+# ============================================================
+
+# Configuration constraints - ensure safe values
+invariant 3 <= 10
+invariant 5 > 0
+
+# String constraints for the healing context
+# These tell the healing system what patterns to avoid
+invariant "staging" != "production"
+invariant "https://api.staging.com" != "https://api.prod.com"
+
+# GOALS - What the program should accomplish
+# ==========================================
+goal "safely fetch data from staging API"
+goal "handle errors gracefully"
+goal "never use production endpoints"
+
+# PROGRAM CODE
+# ============
+
+# Function that returns a safe API URL
+get_api_url() = "https://api.staging.com"
+
+# Maximum retry count (constrained by invariant)
+get_max_retries() = 3
+
+# Main function that demonstrates the concept
+main = : url = get_api_url(); retries = get_max_retries(); url ++ " (max " ++ retries ++ " retries)"

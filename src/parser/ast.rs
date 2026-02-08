@@ -26,6 +26,9 @@ pub enum Definition {
     /// Goal declaration - metadata that describes intent
     /// Used for documentation and self-healing context
     Goal(String),
+    /// Invariant - constraint that healing cannot violate
+    /// Invariants are checked before applying any fix
+    Invariant(Expr),
 }
 
 /// Definición de tipo (@User { ... })
@@ -86,6 +89,45 @@ pub struct EnumVariant {
     pub fields: Option<Vec<Type>>,
 }
 
+/// Configuración de self-healing para una función
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SelfHealConfig {
+    /// Número máximo de intentos de reparación (default: 3)
+    pub max_attempts: u32,
+    /// Modo de healing
+    pub mode: HealMode,
+}
+
+impl Default for SelfHealConfig {
+    fn default() -> Self {
+        Self {
+            max_attempts: 3,
+            mode: HealMode::Auto,
+        }
+    }
+}
+
+/// Modo de healing
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum HealMode {
+    /// Healing técnico - corrige errores de sintaxis y tipos
+    Technical,
+    /// Healing semántico - corrige basándose en los goals
+    Semantic,
+    /// Automático - elige el mejor modo según el error
+    Auto,
+}
+
+impl HealMode {
+    pub fn from_str(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "technical" => HealMode::Technical,
+            "semantic" => HealMode::Semantic,
+            _ => HealMode::Auto,
+        }
+    }
+}
+
 /// Definición de función
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FuncDef {
@@ -95,6 +137,8 @@ pub struct FuncDef {
     pub return_type: Option<Type>,
     pub body: Expr,
     pub span: Span,
+    /// Configuración de self-healing (si tiene @self_heal)
+    pub self_heal: Option<SelfHealConfig>,
 }
 
 /// Parámetro de función
@@ -233,6 +277,13 @@ pub enum Expr {
 
     // Null coalesce (a ?? b)
     NullCoalesce(Box<Expr>, Box<Expr>),
+
+    // Expect - intent verification (expect condition "optional message")
+    // If condition is false, registers as expectation failure (not a crash)
+    Expect {
+        condition: Box<Expr>,
+        message: Option<String>,
+    },
 }
 
 /// Parte de un string interpolado

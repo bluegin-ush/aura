@@ -121,6 +121,16 @@ enum Commands {
         #[arg(long, global = true)]
         json: bool,
     },
+
+    /// Manage healing memory (patterns and defaults)
+    Memory {
+        #[command(subcommand)]
+        action: Option<MemoryAction>,
+
+        /// Output as JSON
+        #[arg(long, global = true)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -154,6 +164,46 @@ enum SnapshotsAction {
         /// Number of snapshots to keep (default: 10)
         #[arg(short, long, default_value = "10")]
         keep: usize,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum MemoryAction {
+    /// List all patterns in memory
+    List {
+        /// Sort by usage count instead of date
+        #[arg(long)]
+        by_usage: bool,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Clear all patterns from memory
+    Clear {
+        /// Also clear project defaults
+        #[arg(long)]
+        all: bool,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Show or set project defaults
+    Defaults {
+        /// Set a default value (format: key=value)
+        #[arg(short, long)]
+        set: Option<String>,
+
+        /// Remove a default by key
+        #[arg(short, long)]
+        remove: Option<String>,
 
         /// Output as JSON
         #[arg(long)]
@@ -197,6 +247,9 @@ fn main() {
         }
         Commands::Snapshots { action, json } => {
             handle_snapshots(action, json);
+        }
+        Commands::Memory { action, json } => {
+            handle_memory(action, json);
         }
     }
 }
@@ -1245,6 +1298,7 @@ fn heal_file(path: &PathBuf, provider: &str, apply: bool, json_output: bool) {
     use std::io::Write;
     use std::thread;
     use std::time::Duration;
+    use aura::agent::{HealingMemory, MEMORY_FILE};
 
     // ANSI colors
     const RED: &str = "\x1b[31m";
@@ -1252,6 +1306,7 @@ fn heal_file(path: &PathBuf, provider: &str, apply: bool, json_output: bool) {
     const YELLOW: &str = "\x1b[33m";
     const BLUE: &str = "\x1b[34m";
     const CYAN: &str = "\x1b[36m";
+    const MAGENTA: &str = "\x1b[35m";
     const BOLD: &str = "\x1b[1m";
     const DIM: &str = "\x1b[2m";
     const RESET: &str = "\x1b[0m";
@@ -1283,6 +1338,9 @@ fn heal_file(path: &PathBuf, provider: &str, apply: bool, json_output: bool) {
         std::io::stdout().flush().unwrap();
     }
 
+    // Load healing memory
+    let mut memory = HealingMemory::load(MEMORY_FILE).unwrap_or_default();
+
     // Read file
     let source = match std::fs::read_to_string(path) {
         Ok(s) => s,
@@ -1305,6 +1363,9 @@ fn heal_file(path: &PathBuf, provider: &str, apply: bool, json_output: bool) {
 
         print_step("📄", BLUE, &format!("File: {}", path.display()));
         print_step("🔧", BLUE, &format!("Provider: {}", provider));
+        if memory.pattern_count() > 0 {
+            print_step("🧠", MAGENTA, &format!("Memory: {} known patterns", memory.pattern_count()));
+        }
         println!();
     }
 
@@ -1378,19 +1439,115 @@ fn heal_file(path: &PathBuf, provider: &str, apply: bool, json_output: bool) {
                 thread::sleep(Duration::from_millis(500));
             }
 
-            // Step 3: Initiate healing
+            // Step 3: Check memory for known pattern
+            let known_pattern = memory.find_pattern(&runtime_error.message);
+
+            if let Some(pattern) = known_pattern {
+                if !json_output {
+                    print_step("3️⃣", MAGENTA, "Found known pattern in memory!");
+                    println!("  {}Pattern: {}{}", DIM, pattern.error, RESET);
+                    println!("  {}Used {} times before{}", DIM, pattern.count, RESET);
+                    println!();
+                }
+
+                // Use the known fix directly
+                let patch = pattern.fix.clone();
+                let explanation = format!("Known fix from memory (used {} times)", pattern.count);
+
+                // Update memory usage count
+                memory.record_fix(&runtime_error.message, &source, &patch);
+                let _ = memory.save(MEMORY_FILE);
+
+                // Apply the known fix
+                if apply {
+                    if !json_output {
+                        print_step("4️⃣", YELLOW, "Applying known fix to file...");
+                    }
+
+                    // Write the fix
+                    if let Err(e) = std::fs::write(path, &patch) {
+                        if json_output {
+                            println!(r#"{{"success":false,"stage":"apply","error":"{}"}}"#, e);
+                        } else {
+                            print_step("❌", RED, &format!("Failed to write fix: {}", e));
+                        }
+                        std::process::exit(1);
+                    }
+
+                    if !json_output {
+                        print_step("✅", GREEN, "Known fix applied to file!");
+                        println!();
+                    }
+
+                    // Verify the fix
+                    let tokens2 = aura::tokenize(&patch).expect("Fixed code should tokenize");
+                    let program2 = aura::parse(tokens2).expect("Fixed code should parse");
+                    let mut vm2 = aura::vm::VM::new();
+                    vm2.load(&program2);
+
+                    match vm2.run() {
+                        Ok(result) => {
+                            if json_output {
+                                println!(r#"{{"success":true,"needed_healing":true,"fixed":true,"from_memory":true,"result":"{}","patch":"{}"}}"#,
+                                    result,
+                                    patch.replace('\n', "\\n").replace('"', "\\\"")
+                                );
+                            } else {
+                                println!();
+                                print_step("🎉", GREEN, "SUCCESS! Known fix works correctly!");
+                                println!();
+                                println!("  {}Result:{} {}", BOLD, RESET, result);
+                                println!();
+                                println!("{}{}═══════════════════════════════════════════════════════════════{}", BOLD, GREEN, RESET);
+                                println!("{}{}   Self-Healing Complete (from memory)!{}", BOLD, GREEN, RESET);
+                                println!("{}{}═══════════════════════════════════════════════════════════════{}", BOLD, GREEN, RESET);
+                                println!();
+                            }
+                        }
+                        Err(e) => {
+                            if json_output {
+                                println!(r#"{{"success":false,"stage":"verify","error":"{}"}}"#, e.message);
+                            } else {
+                                print_step("❌", RED, &format!("Known fix didn't work: {}", e.message));
+                            }
+                            std::process::exit(1);
+                        }
+                    }
+                } else {
+                    if json_output {
+                        println!(r#"{{"success":true,"needed_healing":true,"fixed":false,"from_memory":true,"patch":"{}","explanation":"{}"}}"#,
+                            patch.replace('\n', "\\n").replace('"', "\\\""),
+                            explanation.replace('"', "\\\"")
+                        );
+                    } else {
+                        print_step("5️⃣", YELLOW, "Proposed fix (from memory):");
+                        println!();
+                        for line in patch.lines() {
+                            println!("  {}+{} {}{}", GREEN, RESET, line, RESET);
+                        }
+                        println!();
+                        println!("  {}Use --apply to write the fix to the file{}", DIM, RESET);
+                        println!();
+                    }
+                }
+                return;
+            }
+
+            // No known pattern - use agent
             if !json_output {
                 print_step("3️⃣", YELLOW, "Initiating self-healing...");
                 spinner("Analyzing error context", 600);
                 println!();
             }
 
-            // Create healing context
+            // Create healing context with memory data
             let context = aura::agent::HealingContext::new(
                 &source,
                 path.display().to_string(),
                 1, 1,
-            );
+            )
+            .with_known_patterns(memory.patterns.clone())
+            .with_project_defaults(memory.project_defaults.clone());
 
             // Step 4: Call the agent
             if !json_output {
@@ -1410,6 +1567,9 @@ fn heal_file(path: &PathBuf, provider: &str, apply: bool, json_output: bool) {
 
                 engine.heal_error(&runtime_error, &context).await
             });
+
+            // Track if we need to save memory after a successful fix
+            let error_message = runtime_error.message.clone();
 
             match healing_result {
                 Ok(aura::agent::HealingResult::Fixed { patch, explanation }) => {
@@ -1473,8 +1633,18 @@ fn heal_file(path: &PathBuf, provider: &str, apply: bool, json_output: bool) {
 
                         match vm2.run() {
                             Ok(result) => {
+                                // Save successful fix to memory
+                                memory.record_fix(&error_message, &source, &patch);
+                                if let Err(e) = memory.save(MEMORY_FILE) {
+                                    if !json_output {
+                                        print_step("⚠️", YELLOW, &format!("Warning: Could not save to memory: {}", e));
+                                    }
+                                } else if !json_output {
+                                    print_step("🧠", MAGENTA, "Fix saved to memory for future use");
+                                }
+
                                 if json_output {
-                                    println!(r#"{{"success":true,"needed_healing":true,"fixed":true,"result":"{}","patch":"{}"}}"#,
+                                    println!(r#"{{"success":true,"needed_healing":true,"fixed":true,"saved_to_memory":true,"result":"{}","patch":"{}"}}"#,
                                         result,
                                         patch.replace('\n', "\\n").replace('"', "\\\"")
                                     );
@@ -1548,6 +1718,237 @@ fn heal_file(path: &PathBuf, provider: &str, apply: bool, json_output: bool) {
                     }
                     std::process::exit(1);
                 }
+            }
+        }
+    }
+}
+
+/// Handle memory commands
+fn handle_memory(action: Option<MemoryAction>, parent_json: bool) {
+    match action {
+        None => {
+            // Default: list patterns
+            handle_memory_list(false, parent_json);
+        }
+        Some(MemoryAction::List { by_usage, json }) => {
+            handle_memory_list(by_usage, json || parent_json);
+        }
+        Some(MemoryAction::Clear { all, json }) => {
+            handle_memory_clear(all, json || parent_json);
+        }
+        Some(MemoryAction::Defaults { set, remove, json }) => {
+            handle_memory_defaults(set, remove, json || parent_json);
+        }
+    }
+}
+
+fn handle_memory_list(by_usage: bool, json_output: bool) {
+    use aura::agent::{HealingMemory, MEMORY_FILE};
+
+    let memory = match HealingMemory::load(MEMORY_FILE) {
+        Ok(m) => m,
+        Err(e) => {
+            if json_output {
+                println!(r#"{{"success":false,"error":"{}"}}"#, e);
+            } else {
+                eprintln!("Error loading memory: {}", e);
+            }
+            std::process::exit(1);
+        }
+    };
+
+    let patterns = if by_usage {
+        memory.patterns_by_usage()
+    } else {
+        memory.patterns_by_date()
+    };
+
+    if json_output {
+        let patterns_json: Vec<serde_json::Value> = patterns.iter().map(|p| {
+            serde_json::json!({
+                "error": p.error,
+                "context": p.context,
+                "fix": p.fix,
+                "count": p.count,
+                "last_used": p.last_used.to_rfc3339()
+            })
+        }).collect();
+
+        let defaults: serde_json::Map<String, serde_json::Value> = memory.project_defaults
+            .iter()
+            .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+            .collect();
+
+        println!("{}", serde_json::json!({
+            "success": true,
+            "pattern_count": patterns.len(),
+            "patterns": patterns_json,
+            "defaults": defaults
+        }));
+    } else {
+        if patterns.is_empty() {
+            println!("No patterns in memory.");
+            println!();
+            println!("Patterns are saved when you run 'aura heal --apply' and the fix works.");
+        } else {
+            println!("Healing Memory ({} patterns):", patterns.len());
+            println!();
+            for (i, pattern) in patterns.iter().enumerate() {
+                println!("  {}. Error: {}", i + 1, pattern.error);
+                if !pattern.context.is_empty() {
+                    println!("     Context: {}", truncate_str(&pattern.context, 50));
+                }
+                println!("     Fix: {}", truncate_str(&pattern.fix, 60));
+                println!("     Used: {} times (last: {})", pattern.count, pattern.last_used.format("%Y-%m-%d %H:%M"));
+                println!();
+            }
+        }
+
+        if !memory.project_defaults.is_empty() {
+            println!("Project Defaults:");
+            for (key, value) in &memory.project_defaults {
+                println!("  {} = {}", key, value);
+            }
+            println!();
+        }
+    }
+}
+
+fn handle_memory_clear(all: bool, json_output: bool) {
+    use aura::agent::{HealingMemory, MEMORY_FILE};
+
+    let mut memory = match HealingMemory::load(MEMORY_FILE) {
+        Ok(m) => m,
+        Err(e) => {
+            if json_output {
+                println!(r#"{{"success":false,"error":"{}"}}"#, e);
+            } else {
+                eprintln!("Error loading memory: {}", e);
+            }
+            std::process::exit(1);
+        }
+    };
+
+    let patterns_cleared = memory.pattern_count();
+    let defaults_cleared = if all { memory.project_defaults.len() } else { 0 };
+
+    memory.clear_patterns();
+    if all {
+        memory.clear_defaults();
+    }
+
+    if let Err(e) = memory.save(MEMORY_FILE) {
+        if json_output {
+            println!(r#"{{"success":false,"error":"Failed to save: {}"}}"#, e);
+        } else {
+            eprintln!("Error saving memory: {}", e);
+        }
+        std::process::exit(1);
+    }
+
+    if json_output {
+        println!(r#"{{"success":true,"patterns_cleared":{},"defaults_cleared":{}}}"#,
+            patterns_cleared, defaults_cleared);
+    } else {
+        println!("Cleared {} patterns from memory.", patterns_cleared);
+        if all {
+            println!("Cleared {} project defaults.", defaults_cleared);
+        }
+    }
+}
+
+fn handle_memory_defaults(set: Option<String>, remove: Option<String>, json_output: bool) {
+    use aura::agent::{HealingMemory, MEMORY_FILE};
+
+    let mut memory = match HealingMemory::load(MEMORY_FILE) {
+        Ok(m) => m,
+        Err(e) => {
+            if json_output {
+                println!(r#"{{"success":false,"error":"{}"}}"#, e);
+            } else {
+                eprintln!("Error loading memory: {}", e);
+            }
+            std::process::exit(1);
+        }
+    };
+
+    // Set a default
+    if let Some(kv) = set {
+        if let Some((key, value)) = kv.split_once('=') {
+            memory.set_default(key.trim(), value.trim());
+            if let Err(e) = memory.save(MEMORY_FILE) {
+                if json_output {
+                    println!(r#"{{"success":false,"error":"Failed to save: {}"}}"#, e);
+                } else {
+                    eprintln!("Error saving memory: {}", e);
+                }
+                std::process::exit(1);
+            }
+
+            if json_output {
+                println!(r#"{{"success":true,"action":"set","key":"{}","value":"{}"}}"#, key.trim(), value.trim());
+            } else {
+                println!("Set default: {} = {}", key.trim(), value.trim());
+            }
+            return;
+        } else {
+            if json_output {
+                println!(r#"{{"success":false,"error":"Invalid format. Use: key=value"}}"#);
+            } else {
+                eprintln!("Invalid format. Use: --set key=value");
+            }
+            std::process::exit(1);
+        }
+    }
+
+    // Remove a default
+    if let Some(key) = remove {
+        if memory.project_defaults.remove(&key).is_some() {
+            if let Err(e) = memory.save(MEMORY_FILE) {
+                if json_output {
+                    println!(r#"{{"success":false,"error":"Failed to save: {}"}}"#, e);
+                } else {
+                    eprintln!("Error saving memory: {}", e);
+                }
+                std::process::exit(1);
+            }
+
+            if json_output {
+                println!(r#"{{"success":true,"action":"remove","key":"{}"}}"#, key);
+            } else {
+                println!("Removed default: {}", key);
+            }
+        } else {
+            if json_output {
+                println!(r#"{{"success":false,"error":"Key not found: {}"}}"#, key);
+            } else {
+                eprintln!("Key not found: {}", key);
+            }
+            std::process::exit(1);
+        }
+        return;
+    }
+
+    // List defaults (default action)
+    if json_output {
+        let defaults: serde_json::Map<String, serde_json::Value> = memory.project_defaults
+            .iter()
+            .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+            .collect();
+
+        println!("{}", serde_json::json!({
+            "success": true,
+            "defaults": defaults
+        }));
+    } else {
+        if memory.project_defaults.is_empty() {
+            println!("No project defaults set.");
+            println!();
+            println!("Set defaults with: aura memory defaults --set key=value");
+        } else {
+            println!("Project Defaults:");
+            for (key, value) in &memory.project_defaults {
+                println!("  {} = {}", key, value);
             }
         }
     }

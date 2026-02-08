@@ -1,0 +1,12 @@
+# Ejemplo de expect - Verificacion de intenciones en AURA
+# expect verifica condiciones sin crashear si fallan
+
++http
+
+goal "verificar que los numeros sean positivos"
+
+# Funcion que valida un numero
+validate(n) = : expect n > 0 "n debe ser positivo"; n
+
+# main demuestra diferentes casos de expect
+main = : x = validate(5); y = validate(-3); x + y

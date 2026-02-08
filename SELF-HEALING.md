@@ -213,6 +213,67 @@ aura undo
 
 ---
 
+## Features Agent-Native
+
+### expect: verificación de intención
+
+El `expect` verifica condiciones sin crashear. Si falla, registra la "desviación de intención":
+
+```ruby
+goal "todos los usuarios activos"
+
+main = : users = get_users(); expect users.all(u -> u.active); users
+```
+
+Si el expect falla, el agente sabe que el resultado no cumple la intención.
+
+### invariant: constraints para healing
+
+Los invariants son reglas que el healing NO puede violar:
+
+```ruby
+invariant api_url != "https://production.com"
+invariant !contains(code, "mock_data")
+
+goal "consultar API"
+main = http.get(api_url ++ "/users")
+```
+
+Si el agente propone un fix que viola un invariant, se rechaza.
+
+### @self_heal: healing automático
+
+Marca funciones para que se reparen automáticamente en runtime:
+
+```ruby
+@self_heal
+main = get_users() |> filter(active) |> count
+
+@self_heal(max_attempts: 5, mode: "technical")
+risky_operation() = http.get(unstable_url)
+```
+
+Modos:
+- `technical`: corrige errores de sintaxis y tipos
+- `semantic`: corrige basándose en goals
+- `auto`: elige el mejor modo
+
+### memoria de healing
+
+El sistema recuerda patrones de errores y fixes:
+
+```bash
+# Ver patrones aprendidos
+aura memory list
+
+# Gestionar defaults del proyecto
+aura memory defaults --set api_url=https://api.example.com
+```
+
+Archivo `.aura-memory.json` (local, no se sube a git).
+
+---
+
 ## Resumen
 
 | Tradicional | AURA |
@@ -221,5 +282,7 @@ aura undo
 | Contexto fragmentado | Código + goal + error juntos |
 | Humano en cada iteración | Loop cerrado |
 | Múltiples ciclos | Una ejecución |
+| Sin memoria | Aprende patrones |
+| Sin constraints | Invariants respetados |
 
 El futuro del desarrollo es que las máquinas corrijan su propio código.

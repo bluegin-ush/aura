@@ -177,6 +177,12 @@ pub enum Token {
     #[token("continue")]
     Continue,
 
+    #[token("expect")]
+    Expect,
+
+    #[token("invariant")]
+    Invariant,
+
     // ═══════════════════════════════════════════════════════════
     // ESPECIALES AURA
     // ═══════════════════════════════════════════════════════════
@@ -260,6 +266,9 @@ pub enum Token {
 
     #[token("@every")]
     AnnEvery,
+
+    #[token("@self_heal")]
+    AnnSelfHeal,
 
     // ═══════════════════════════════════════════════════════════
     // ANOTACIONES CON PARÁMETROS (se parsean después)
@@ -403,6 +412,8 @@ impl Token {
                 | Token::Return
                 | Token::Break
                 | Token::Continue
+                | Token::Expect
+                | Token::Invariant
         )
     }
 
@@ -439,7 +450,13 @@ impl Token {
                 | Token::AnnRange
                 | Token::AnnMatch
                 | Token::AnnRole
+                | Token::AnnSelfHeal
         )
+    }
+
+    /// Retorna true si el token es una anotación de función
+    pub fn is_function_annotation(&self) -> bool {
+        matches!(self, Token::AnnSelfHeal)
     }
 }
 

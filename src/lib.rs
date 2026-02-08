@@ -35,8 +35,8 @@ pub use error::{
 };
 pub use lexer::{tokenize, Token};
 pub use loader::{load_file, is_builtin_capability, LoadError};
-pub use parser::{parse, parse_expression, parse_function_def, looks_like_function_def, Program, Expr, Type, Definition, FuncDef};
-pub use vm::Value;
+pub use parser::{parse, parse_expression, parse_function_def, looks_like_function_def, Program, Expr, Type, Definition, FuncDef, SelfHealConfig, HealMode};
+pub use vm::{Value, ExpectationFailure};
 
 /// Versión de AURA
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

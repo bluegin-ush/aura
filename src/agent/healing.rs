@@ -171,20 +171,49 @@ impl<P: AgentProvider> HealingEngine<P> {
         let agent_context = Context::new(&context.source_code)
             .with_surrounding(context.surrounding_code.clone().unwrap_or_default());
 
-        // Construir mensaje con goals si existen
-        let message = if context.goals.is_empty() {
-            error.message.clone()
-        } else {
+        // Construir mensaje con goals, invariants, y expectativas fallidas si existen
+        let mut message_parts = vec![error.message.clone()];
+
+        if !context.goals.is_empty() {
             let goals_str = context.goals.iter()
                 .map(|g| format!("- {}", g))
                 .collect::<Vec<_>>()
                 .join("\n");
-            format!(
-                "{}\n\nProgram goals (developer intent):\n{}",
-                error.message,
+            message_parts.push(format!(
+                "\nProgram goals (developer intent):\n{}",
                 goals_str
-            )
-        };
+            ));
+        }
+
+        // CRITICAL: Invariants are constraints that the fix MUST respect
+        if !context.invariants.is_empty() {
+            let invariants_str = context.invariants.iter()
+                .map(|i| format!("- {}", i))
+                .collect::<Vec<_>>()
+                .join("\n");
+            message_parts.push(format!(
+                "\n\nCRITICAL INVARIANTS (constraints that ANY fix MUST respect - violations will be rejected):\n{}",
+                invariants_str
+            ));
+        }
+
+        if !context.failed_expectations.is_empty() {
+            let expectations_str = context.failed_expectations.iter()
+                .map(|e| {
+                    let msg = e.message.as_ref()
+                        .map(|m| format!(" ({})", m))
+                        .unwrap_or_default();
+                    format!("- {} = {} {}", e.condition, e.actual_value, msg)
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            message_parts.push(format!(
+                "\nFailed expectations (intent verifications):\n{}",
+                expectations_str
+            ));
+        }
+
+        let message = message_parts.join("");
 
         let mut request = AgentRequest::error(
             &context.source_code,
@@ -428,6 +457,27 @@ pub struct HealingContext {
     /// Goals declarados en el programa (intenciones del desarrollador)
     /// El agente usa esto para entender QUE se queria lograr
     pub goals: Vec<String>,
+    /// Failed expectations from expect statements
+    /// These are intent verification failures that can trigger healing
+    pub failed_expectations: Vec<ExpectationInfo>,
+    /// Invariants - constraints that any fix MUST respect
+    /// If a proposed fix would violate an invariant, it must be rejected
+    pub invariants: Vec<String>,
+    /// Patrones conocidos de la memoria de healing
+    pub known_patterns: Vec<super::memory::Pattern>,
+    /// Valores por defecto del proyecto
+    pub project_defaults: std::collections::HashMap<String, String>,
+}
+
+/// Information about a failed expectation for healing context
+#[derive(Debug, Clone)]
+pub struct ExpectationInfo {
+    /// The condition that failed
+    pub condition: String,
+    /// Optional message from the developer
+    pub message: Option<String>,
+    /// The actual value that was evaluated
+    pub actual_value: String,
 }
 
 impl HealingContext {
@@ -440,6 +490,10 @@ impl HealingContext {
             column,
             surrounding_code: None,
             goals: Vec::new(),
+            failed_expectations: Vec::new(),
+            invariants: Vec::new(),
+            known_patterns: Vec::new(),
+            project_defaults: std::collections::HashMap::new(),
         }
     }
 
@@ -455,8 +509,32 @@ impl HealingContext {
         self
     }
 
+    /// Agrega invariants (restricciones que el healing debe respetar)
+    pub fn with_invariants(mut self, invariants: Vec<String>) -> Self {
+        self.invariants = invariants;
+        self
+    }
+
+    /// Agrega expectativas fallidas
+    pub fn with_failed_expectations(mut self, expectations: Vec<ExpectationInfo>) -> Self {
+        self.failed_expectations = expectations;
+        self
+    }
+
+    /// Agrega patrones conocidos de la memoria de healing
+    pub fn with_known_patterns(mut self, patterns: Vec<super::memory::Pattern>) -> Self {
+        self.known_patterns = patterns;
+        self
+    }
+
+    /// Agrega defaults del proyecto
+    pub fn with_project_defaults(mut self, defaults: std::collections::HashMap<String, String>) -> Self {
+        self.project_defaults = defaults;
+        self
+    }
+
     /// Crea contexto desde un RuntimeError (cuando tenemos informacion de ubicacion)
-    pub fn from_error(error: &RuntimeError, source: impl Into<String>, file: impl Into<String>) -> Self {
+    pub fn from_error(_error: &RuntimeError, source: impl Into<String>, file: impl Into<String>) -> Self {
         // Por ahora RuntimeError solo tiene message, asi que usamos defaults
         Self {
             source_code: source.into(),
@@ -465,6 +543,10 @@ impl HealingContext {
             column: 1,
             surrounding_code: None,
             goals: Vec::new(),
+            failed_expectations: Vec::new(),
+            invariants: Vec::new(),
+            known_patterns: Vec::new(),
+            project_defaults: std::collections::HashMap::new(),
         }
     }
 }
@@ -630,6 +712,13 @@ pub enum HealingError {
     MaxAttemptsReached,
     /// Error del sistema de snapshots
     SnapshotError(String),
+    /// El fix propuesto viola uno o mas invariants
+    InvariantViolation {
+        /// Los invariants que fueron violados
+        violated: Vec<String>,
+        /// El fix que fue rechazado
+        rejected_fix: String,
+    },
 }
 
 impl fmt::Display for HealingError {
@@ -639,6 +728,9 @@ impl fmt::Display for HealingError {
             Self::InvalidResponse(msg) => write!(f, "Respuesta invalida: {}", msg),
             Self::MaxAttemptsReached => write!(f, "Se alcanzo el maximo de intentos de reparacion"),
             Self::SnapshotError(msg) => write!(f, "Error de snapshot: {}", msg),
+            Self::InvariantViolation { violated, rejected_fix } => {
+                write!(f, "Fix rechazado por violar invariants: {:?}. Fix propuesto: {}", violated, rejected_fix)
+            }
         }
     }
 }

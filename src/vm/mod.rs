@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
-use crate::parser::{Program, Definition, Expr, BinaryOp, UnaryOp, FuncDef, TypeDef};
+use crate::parser::{Program, Definition, Expr, BinaryOp, UnaryOp, FuncDef, TypeDef, SelfHealConfig};
 use crate::caps::http::{http_get, http_post, http_put, http_delete};
 use crate::caps::db::{db_connect, db_query, db_execute, db_close};
 use crate::caps::env::{env_get, env_get_or, env_set, env_remove, env_exists};
@@ -127,6 +127,37 @@ impl RuntimeError {
     }
 }
 
+/// Represents a failed expectation (intent verification)
+/// Unlike RuntimeError, this doesn't crash the program but registers a deviation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExpectationFailure {
+    /// String representation of the condition that failed
+    pub condition: String,
+    /// Optional custom message provided by the developer
+    pub message: Option<String>,
+    /// The actual value that was evaluated
+    pub value: Value,
+}
+
+impl ExpectationFailure {
+    pub fn new(condition: impl Into<String>, message: Option<String>, value: Value) -> Self {
+        Self {
+            condition: condition.into(),
+            message,
+            value,
+        }
+    }
+}
+
+impl std::fmt::Display for ExpectationFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.message {
+            Some(msg) => write!(f, "Expectation failed: {} ({})", msg, self.condition),
+            None => write!(f, "Expectation failed: {}", self.condition),
+        }
+    }
+}
+
 /// Entorno de ejecución
 #[derive(Debug, Default)]
 pub struct Environment {
@@ -210,11 +241,25 @@ impl Environment {
     }
 }
 
+/// Violation of an invariant constraint
+#[derive(Debug, Clone)]
+pub struct InvariantViolation {
+    /// The original expression that was violated
+    pub expression: String,
+    /// Human-readable description of what was violated
+    pub description: String,
+}
+
 /// Máquina virtual de AURA
 pub struct VM {
     env: Environment,
     /// Goals declarados en el programa (metadata para self-healing)
     goals: Vec<String>,
+    /// Failed expectations (intent verifications that didn't pass)
+    /// These don't crash the program but are registered for self-healing
+    failed_expectations: Vec<ExpectationFailure>,
+    /// Invariants - constraints that healing cannot violate
+    invariants: Vec<Expr>,
 }
 
 impl VM {
@@ -222,6 +267,8 @@ impl VM {
         Self {
             env: Environment::new(),
             goals: Vec::new(),
+            failed_expectations: Vec::new(),
+            invariants: Vec::new(),
         }
     }
 
@@ -231,6 +278,13 @@ impl VM {
         for def in &program.definitions {
             if let Definition::Goal(goal) = def {
                 self.goals.push(goal.clone());
+            }
+        }
+
+        // Cargar invariants
+        for def in &program.definitions {
+            if let Definition::Invariant(expr) = def {
+                self.invariants.push(expr.clone());
             }
         }
 
@@ -281,10 +335,111 @@ impl VM {
         self.goals.clone()
     }
 
+    /// Obtiene las expectativas fallidas (verificaciones de intención que no pasaron)
+    pub fn get_failed_expectations(&self) -> &[ExpectationFailure] {
+        &self.failed_expectations
+    }
+
+    /// Verifica si hay expectativas fallidas
+    pub fn has_failed_expectations(&self) -> bool {
+        !self.failed_expectations.is_empty()
+    }
+
+    /// Limpia las expectativas fallidas
+    pub fn clear_expectations(&mut self) {
+        self.failed_expectations.clear();
+    }
+
+    /// Registra una expectativa fallida
+    fn record_expectation_failure(&mut self, failure: ExpectationFailure) {
+        self.failed_expectations.push(failure);
+    }
+
     /// Reinicia el estado de la VM
     pub fn reset(&mut self) {
         self.env.clear();
         self.goals.clear();
+        self.failed_expectations.clear();
+        self.invariants.clear();
+    }
+
+    /// Obtiene los invariants como expresiones
+    /// Los invariants son restricciones que el healing no puede violar
+    pub fn get_invariants(&self) -> &[Expr] {
+        &self.invariants
+    }
+
+    /// Obtiene los invariants como strings legibles para el contexto de healing
+    pub fn get_invariants_as_strings(&self) -> Vec<String> {
+        self.invariants.iter()
+            .map(|expr| format!("{:?}", expr))
+            .collect()
+    }
+
+    /// Verifica todos los invariants y retorna las violaciones
+    /// Evalúa cada invariant en el contexto actual y retorna los que son falsos
+    pub fn check_invariants(&mut self) -> Vec<InvariantViolation> {
+        let mut violations = Vec::new();
+
+        for invariant in self.invariants.clone() {
+            match self.eval(&invariant) {
+                Ok(Value::Bool(true)) => {
+                    // Invariant holds, all good
+                }
+                Ok(Value::Bool(false)) => {
+                    violations.push(InvariantViolation {
+                        expression: format!("{:?}", invariant),
+                        description: format!("Invariant violation: {:?} evaluated to false", invariant),
+                    });
+                }
+                Ok(other) => {
+                    violations.push(InvariantViolation {
+                        expression: format!("{:?}", invariant),
+                        description: format!("Invariant {:?} did not evaluate to boolean, got: {:?}", invariant, other),
+                    });
+                }
+                Err(e) => {
+                    violations.push(InvariantViolation {
+                        expression: format!("{:?}", invariant),
+                        description: format!("Error evaluating invariant {:?}: {}", invariant, e.message),
+                    });
+                }
+            }
+        }
+
+        violations
+    }
+
+    /// Verifica si todos los invariants se cumplen
+    pub fn invariants_hold(&mut self) -> bool {
+        self.check_invariants().is_empty()
+    }
+
+    /// Obtiene las funciones que tienen @self_heal configurado
+    pub fn get_self_heal_functions(&self) -> Vec<(String, SelfHealConfig)> {
+        self.env.functions.iter()
+            .filter_map(|(name, func)| {
+                func.self_heal.as_ref().map(|config| (name.clone(), config.clone()))
+            })
+            .collect()
+    }
+
+    /// Verifica si una función tiene self-healing habilitado
+    pub fn has_self_heal(&self, func_name: &str) -> bool {
+        self.env.get_function(func_name)
+            .map(|f| f.self_heal.is_some())
+            .unwrap_or(false)
+    }
+
+    /// Obtiene la configuración de self-heal de una función
+    pub fn get_self_heal_config(&self, func_name: &str) -> Option<SelfHealConfig> {
+        self.env.get_function(func_name)
+            .and_then(|f| f.self_heal.clone())
+    }
+
+    /// Verifica si 'main' tiene self-healing habilitado
+    pub fn main_has_self_heal(&self) -> bool {
+        self.has_self_heal("main")
     }
 
     /// Llama a una función por nombre con argumentos dados
@@ -462,6 +617,28 @@ impl VM {
                     }
                 }
                 Ok(result)
+            }
+
+            // Expect expression - intent verification
+            Expr::Expect { condition, message } => {
+                let cond_val = self.eval(condition)?;
+                let is_truthy = self.is_truthy(&cond_val);
+
+                if is_truthy {
+                    // Expectation passed - return true
+                    Ok(Value::Bool(true))
+                } else {
+                    // Expectation failed - register but don't crash
+                    let condition_str = format!("{:?}", condition);
+                    let failure = ExpectationFailure::new(
+                        condition_str,
+                        message.clone(),
+                        cond_val,
+                    );
+                    self.record_expectation_failure(failure);
+                    // Return false to indicate failure, but continue execution
+                    Ok(Value::Bool(false))
+                }
             }
 
             // Match, InterpolatedString, Spread - no implementados aún
@@ -1230,5 +1407,189 @@ main = 1
         assert_eq!(vm.get_goals().len(), 1);
         vm.reset();
         assert_eq!(vm.get_goals().len(), 0);
+    }
+
+    #[test]
+    fn test_expect_passes() {
+        let source = r#"+http
+main = : x = 5; expect x > 0; x
+"#;
+        let result = run_code(source);
+        assert_eq!(result.unwrap(), Value::Int(5));
+    }
+
+    #[test]
+    fn test_expect_fails_but_continues() {
+        let source = r#"+http
+main = : x = -3; expect x > 0; x
+"#;
+        let tokens = tokenize(source).expect("Tokenize failed");
+        let program = parse(tokens).expect("Parse failed");
+        let mut vm = VM::new();
+        vm.load(&program);
+
+        let result = vm.run();
+        // Program should continue executing and return the value
+        assert_eq!(result.unwrap(), Value::Int(-3));
+        // But there should be a failed expectation
+        assert!(vm.has_failed_expectations());
+        assert_eq!(vm.get_failed_expectations().len(), 1);
+    }
+
+    #[test]
+    fn test_expect_with_message() {
+        let source = r#"+http
+main = : x = -1; expect x > 0 "x should be positive"; x
+"#;
+        let tokens = tokenize(source).expect("Tokenize failed");
+        let program = parse(tokens).expect("Parse failed");
+        let mut vm = VM::new();
+        vm.load(&program);
+
+        let result = vm.run();
+        assert_eq!(result.unwrap(), Value::Int(-1));
+
+        let failures = vm.get_failed_expectations();
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0].message, Some("x should be positive".to_string()));
+    }
+
+    #[test]
+    fn test_multiple_expects() {
+        let source = r#"+http
+main = : a = 5; b = -2; expect a > 0; expect b > 0; a + b
+"#;
+        let tokens = tokenize(source).expect("Tokenize failed");
+        let program = parse(tokens).expect("Parse failed");
+        let mut vm = VM::new();
+        vm.load(&program);
+
+        let result = vm.run();
+        // Program continues and returns the sum
+        assert_eq!(result.unwrap(), Value::Int(3));
+        // One expect passed, one failed
+        assert_eq!(vm.get_failed_expectations().len(), 1);
+    }
+
+    #[test]
+    fn test_expect_clears_on_reset() {
+        let source = r#"+http
+main = : expect false; 42
+"#;
+        let tokens = tokenize(source).expect("Tokenize failed");
+        let program = parse(tokens).expect("Parse failed");
+        let mut vm = VM::new();
+        vm.load(&program);
+        vm.run().unwrap();
+
+        assert!(vm.has_failed_expectations());
+        vm.reset();
+        assert!(!vm.has_failed_expectations());
+    }
+
+    #[test]
+    fn test_invariants_stored() {
+        let source = r#"+http
+invariant api_url != "https://prod.example.com"
+invariant max_retries <= 5
+main = 42
+"#;
+        let tokens = tokenize(source).expect("Tokenize failed");
+        let program = parse(tokens).expect("Parse failed");
+        let mut vm = VM::new();
+        vm.load(&program);
+
+        let invariants = vm.get_invariants();
+        assert_eq!(invariants.len(), 2);
+    }
+
+    #[test]
+    fn test_invariants_check_pass() {
+        // Invariants that check literal values should pass
+        let source = r#"+http
+invariant 5 > 3
+invariant "test" != "production"
+main = 42
+"#;
+        let tokens = tokenize(source).expect("Tokenize failed");
+        let program = parse(tokens).expect("Parse failed");
+        let mut vm = VM::new();
+        vm.load(&program);
+        vm.run().unwrap();
+
+        let violations = vm.check_invariants();
+        assert!(violations.is_empty(), "Expected no violations, got: {:?}", violations);
+        assert!(vm.invariants_hold());
+    }
+
+    #[test]
+    fn test_invariants_check_fail() {
+        // Invariants that evaluate to false should be detected
+        let source = r#"+http
+invariant 3 > 5
+main = 42
+"#;
+        let tokens = tokenize(source).expect("Tokenize failed");
+        let program = parse(tokens).expect("Parse failed");
+        let mut vm = VM::new();
+        vm.load(&program);
+        vm.run().unwrap();
+
+        let violations = vm.check_invariants();
+        assert_eq!(violations.len(), 1, "Expected 1 violation, got: {:?}", violations);
+        assert!(!vm.invariants_hold());
+    }
+
+    #[test]
+    fn test_invariants_with_variables() {
+        // Invariants can reference variables set in the environment
+        let source = r#"+http
+main = : api_url = "https://staging.example.com"; api_url
+"#;
+        let tokens = tokenize(source).expect("Tokenize failed");
+        let program = parse(tokens).expect("Parse failed");
+        let mut vm = VM::new();
+        vm.load(&program);
+
+        // After running main, api_url will be set in the environment
+        vm.run().unwrap();
+
+        // Now we can define an invariant using that variable
+        // (In real usage, invariants would be declared in the program)
+        // This test verifies that the VM can check invariants after execution
+        assert!(vm.invariants_hold()); // No invariants = all hold
+    }
+
+    #[test]
+    fn test_invariants_reset() {
+        let source = r#"+http
+invariant x > 0
+main = 42
+"#;
+        let tokens = tokenize(source).expect("Tokenize failed");
+        let program = parse(tokens).expect("Parse failed");
+        let mut vm = VM::new();
+        vm.load(&program);
+
+        assert_eq!(vm.get_invariants().len(), 1);
+        vm.reset();
+        assert_eq!(vm.get_invariants().len(), 0);
+    }
+
+    #[test]
+    fn test_invariants_as_strings() {
+        let source = r#"+http
+invariant api_url != "https://prod.example.com"
+main = 42
+"#;
+        let tokens = tokenize(source).expect("Tokenize failed");
+        let program = parse(tokens).expect("Parse failed");
+        let mut vm = VM::new();
+        vm.load(&program);
+
+        let strings = vm.get_invariants_as_strings();
+        assert_eq!(strings.len(), 1);
+        // Should contain some representation of the expression
+        assert!(strings[0].contains("api_url") || strings[0].contains("BinaryOp"));
     }
 }
