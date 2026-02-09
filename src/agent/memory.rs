@@ -39,10 +39,48 @@ use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 
 /// Version actual del formato de memoria
-pub const MEMORY_VERSION: &str = "1.0";
+pub const MEMORY_VERSION: &str = "2.0";
 
 /// Nombre del archivo de memoria por defecto
 pub const MEMORY_FILE: &str = ".aura-memory.json";
+
+/// Reasoning episode for cognitive memory
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReasoningEpisode {
+    /// Type of trigger that caused the deliberation
+    pub trigger_type: String,
+    /// Observations that were active during the episode
+    pub observations: Vec<String>,
+    /// The decision that was made
+    pub decision: String,
+    /// Detail of the decision
+    pub decision_detail: String,
+    /// Outcome of the episode (filled after execution)
+    pub outcome: Option<EpisodeOutcome>,
+    /// When the episode occurred
+    pub timestamp: DateTime<Utc>,
+    /// Context of the episode
+    pub context: EpisodeContext,
+}
+
+/// Outcome of a reasoning episode
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum EpisodeOutcome {
+    /// The decision led to success
+    Success,
+    /// The decision led to failure
+    Failure(String),
+    /// Outcome not yet determined
+    Pending,
+}
+
+/// Context for a reasoning episode
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EpisodeContext {
+    pub file: String,
+    pub function: Option<String>,
+    pub goals: Vec<String>,
+}
 
 /// Memoria de healing persistente
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,6 +93,10 @@ pub struct HealingMemory {
 
     /// Valores por defecto del proyecto
     pub project_defaults: HashMap<String, String>,
+
+    /// Reasoning episodes from cognitive execution (v2.0)
+    #[serde(default)]
+    pub reasoning_episodes: Vec<ReasoningEpisode>,
 }
 
 /// Patron de error conocido
@@ -126,12 +168,14 @@ impl HealingMemory {
             version: MEMORY_VERSION.to_string(),
             patterns: Vec::new(),
             project_defaults: HashMap::new(),
+            reasoning_episodes: Vec::new(),
         }
     }
 
     /// Carga la memoria desde un archivo
     ///
     /// Si el archivo no existe, retorna una memoria vacia.
+    /// Automatically migrates from v1.0 format (adds empty reasoning_episodes).
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, MemoryError> {
         let path = path.as_ref();
 
@@ -140,12 +184,12 @@ impl HealingMemory {
         }
 
         let content = fs::read_to_string(path)?;
-        let memory: HealingMemory = serde_json::from_str(&content)?;
+        let mut memory: HealingMemory = serde_json::from_str(&content)?;
 
-        // Verificar version (por ahora solo advertir, no fallar)
-        if memory.version != MEMORY_VERSION {
-            // En futuras versiones podriamos migrar el formato
-            // Por ahora, simplemente lo cargamos
+        // Migrate from v1.0 to v2.0
+        if memory.version == "1.0" {
+            memory.version = MEMORY_VERSION.to_string();
+            // reasoning_episodes will be empty due to #[serde(default)]
         }
 
         Ok(memory)
@@ -263,6 +307,41 @@ impl HealingMemory {
     pub fn clear(&mut self) {
         self.patterns.clear();
         self.project_defaults.clear();
+        self.reasoning_episodes.clear();
+    }
+
+    /// Records a reasoning episode
+    pub fn record_episode(&mut self, episode: ReasoningEpisode) {
+        self.reasoning_episodes.push(episode);
+        // Prune if over limit
+        const MAX_EPISODES: usize = 100;
+        if self.reasoning_episodes.len() > MAX_EPISODES {
+            let excess = self.reasoning_episodes.len() - MAX_EPISODES;
+            self.reasoning_episodes.drain(0..excess);
+        }
+    }
+
+    /// Finds similar episodes based on trigger type and observation overlap
+    pub fn find_similar_episodes(&self, trigger: &str, observations: &[String]) -> Vec<&ReasoningEpisode> {
+        self.reasoning_episodes.iter()
+            .filter(|ep| {
+                if ep.trigger_type != trigger {
+                    return false;
+                }
+                // Check for observation overlap
+                if observations.is_empty() {
+                    return true;
+                }
+                let overlap = ep.observations.iter()
+                    .any(|obs| observations.iter().any(|o| obs.contains(o.as_str()) || o.contains(obs.as_str())));
+                overlap
+            })
+            .collect()
+    }
+
+    /// Gets the number of reasoning episodes
+    pub fn episode_count(&self) -> usize {
+        self.reasoning_episodes.len()
     }
 
     /// Obtiene el numero de patrones
@@ -447,6 +526,104 @@ mod tests {
         assert!(display.contains("Error X"));
         assert!(display.contains("context Y"));
         assert!(display.contains("fix Z"));
+    }
+
+    #[test]
+    fn test_record_and_find_episodes() {
+        let mut memory = HealingMemory::new();
+
+        let episode = ReasoningEpisode {
+            trigger_type: "expect_failed".to_string(),
+            observations: vec!["x = -5".to_string(), "goal: positive values".to_string()],
+            decision: "override".to_string(),
+            decision_detail: "injected 0".to_string(),
+            outcome: Some(EpisodeOutcome::Success),
+            timestamp: Utc::now(),
+            context: EpisodeContext {
+                file: "test.aura".to_string(),
+                function: Some("main".to_string()),
+                goals: vec!["positive values".to_string()],
+            },
+        };
+
+        memory.record_episode(episode);
+        assert_eq!(memory.episode_count(), 1);
+
+        // Find similar episodes
+        let similar = memory.find_similar_episodes("expect_failed", &["x = -5".to_string()]);
+        assert_eq!(similar.len(), 1);
+
+        // Different trigger type should not match
+        let different = memory.find_similar_episodes("technical_error", &["x = -5".to_string()]);
+        assert_eq!(different.len(), 0);
+    }
+
+    #[test]
+    fn test_episode_pruning() {
+        let mut memory = HealingMemory::new();
+
+        // Add more than 100 episodes
+        for i in 0..110 {
+            memory.record_episode(ReasoningEpisode {
+                trigger_type: "test".to_string(),
+                observations: vec![format!("obs_{}", i)],
+                decision: "continue".to_string(),
+                decision_detail: String::new(),
+                outcome: None,
+                timestamp: Utc::now(),
+                context: EpisodeContext {
+                    file: "test.aura".to_string(),
+                    function: None,
+                    goals: Vec::new(),
+                },
+            });
+        }
+
+        // Should be pruned to 100
+        assert_eq!(memory.episode_count(), 100);
+    }
+
+    #[test]
+    fn test_v1_format_migration() {
+        // Simulate v1.0 format (no reasoning_episodes field)
+        let v1_json = r#"{
+            "version": "1.0",
+            "patterns": [],
+            "project_defaults": {}
+        }"#;
+
+        let file = NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), v1_json).unwrap();
+
+        let memory = HealingMemory::load(file.path()).unwrap();
+        assert_eq!(memory.version, "2.0");
+        assert!(memory.reasoning_episodes.is_empty());
+    }
+
+    #[test]
+    fn test_v2_save_and_load_with_episodes() {
+        let mut memory = HealingMemory::new();
+        memory.record_episode(ReasoningEpisode {
+            trigger_type: "reason".to_string(),
+            observations: vec!["status = 500".to_string()],
+            decision: "override".to_string(),
+            decision_detail: "use cache".to_string(),
+            outcome: Some(EpisodeOutcome::Success),
+            timestamp: Utc::now(),
+            context: EpisodeContext {
+                file: "api.aura".to_string(),
+                function: Some("fetch_data".to_string()),
+                goals: vec!["ensure availability".to_string()],
+            },
+        });
+
+        let file = NamedTempFile::new().unwrap();
+        memory.save(file.path()).unwrap();
+
+        let loaded = HealingMemory::load(file.path()).unwrap();
+        assert_eq!(loaded.episode_count(), 1);
+        assert_eq!(loaded.reasoning_episodes[0].trigger_type, "reason");
+        assert_eq!(loaded.reasoning_episodes[0].decision, "override");
     }
 
     #[test]

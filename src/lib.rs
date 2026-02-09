@@ -35,8 +35,10 @@ pub use error::{
 };
 pub use lexer::{tokenize, Token};
 pub use loader::{load_file, is_builtin_capability, LoadError};
-pub use parser::{parse, parse_expression, parse_function_def, looks_like_function_def, Program, Expr, Type, Definition, FuncDef, SelfHealConfig, HealMode};
-pub use vm::{Value, ExpectationFailure};
+pub use parser::{parse, parse_expression, parse_function_def, looks_like_function_def, Program, Expr, Type, Definition, FuncDef, SelfHealConfig, HealMode, GoalDef, ObserveDef};
+pub use vm::{Value, ExpectationFailure, CognitiveRuntime, CognitiveDecision, ObservationEvent, DeliberationTrigger, NullCognitiveRuntime, VMCheckpoint, CheckpointManager};
+pub use vm::runner::{run_cognitive, run_program_cognitive, CognitiveRunResult};
+pub use vm::agent_cognitive::{AgentCognitiveRuntime, ReasoningEpisode, EpisodeOutcome, EpisodeContext, CognitiveSafetyConfig, validate_fix};
 
 /// Versión de AURA
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -53,7 +55,11 @@ pub fn runtime_info() -> serde_json::Value {
             "hot_reload": true,
             "agent_bridge": true,
             "json_errors": true,
-            "incremental_parsing": true
+            "incremental_parsing": true,
+            "cognitive_runtime": true,
+            "backtrack": true,
+            "observe": true,
+            "reason": true
         }
     })
 }

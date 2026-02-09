@@ -646,6 +646,12 @@ fn parse_primary(parser: &mut Parser) -> Result<Expr, ParseError> {
                 message,
             })
         }
+        Some(Token::Observe) => {
+            parse_observe_expr(parser)
+        }
+        Some(Token::Reason) => {
+            parse_reason_expr(parser)
+        }
         _ => Err(ParseError {
             message: format!("Unexpected token: {:?}", parser.peek()),
             span: parser.current().map(|t| t.span.clone()).unwrap_or(Span::new(0, 0)),
@@ -919,17 +925,196 @@ fn parse_func_def_with_self_heal(parser: &mut Parser, self_heal: Option<SelfHeal
     })
 }
 
-/// Parse a goal declaration: goal "description"
-fn parse_goal(parser: &mut Parser) -> Result<String, ParseError> {
+/// Parse a goal declaration: goal "description" [check <expr>]
+fn parse_goal(parser: &mut Parser) -> Result<GoalDef, ParseError> {
+    let start = parser.current().map(|t| t.span.start).unwrap_or(0);
     parser.consume(Token::Goal)?;
 
-    match parser.peek().cloned() {
+    let description = match parser.peek().cloned() {
         Some(Token::String(s)) => {
             parser.advance();
-            Ok(s)
+            s
+        }
+        _ => return Err(ParseError {
+            message: "Expected string after 'goal'".to_string(),
+            span: parser.current().map(|t| t.span.clone()).unwrap_or(Span::new(0, 0)),
+        }),
+    };
+
+    // Check for optional "check" keyword (soft keyword via Ident)
+    let check = if let Some(Token::Ident(ref s)) = parser.peek().cloned() {
+        if s == "check" {
+            parser.advance(); // consume "check"
+            Some(parse_expr(parser)?)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let end = parser.tokens.get(parser.pos.saturating_sub(1))
+        .map(|t| t.span.end)
+        .unwrap_or(0);
+
+    Ok(GoalDef {
+        description,
+        check,
+        span: Span::new(start, end),
+    })
+}
+
+/// Parse an observe declaration: observe <ident> [where <expr>]
+fn parse_observe_expr(parser: &mut Parser) -> Result<Expr, ParseError> {
+    parser.consume(Token::Observe)?;
+
+    let target = match parser.peek().cloned() {
+        Some(Token::Ident(name)) => {
+            parser.advance();
+            name
+        }
+        _ => return Err(ParseError {
+            message: "Expected identifier after 'observe'".to_string(),
+            span: parser.current().map(|t| t.span.clone()).unwrap_or(Span::new(0, 0)),
+        }),
+    };
+
+    // Handle dotted access: observe response.status
+    let mut full_target = target;
+    while let Some(Token::Dot) = parser.peek() {
+        parser.advance();
+        if let Some(Token::Ident(field)) = parser.peek().cloned() {
+            parser.advance();
+            full_target = format!("{}.{}", full_target, field);
+        }
+    }
+
+    // Check for optional "where" condition
+    let condition = if let Some(Token::Where) = parser.peek() {
+        parser.advance();
+        Some(Box::new(parse_expr(parser)?))
+    } else {
+        None
+    };
+
+    Ok(Expr::Observe {
+        target: full_target,
+        condition,
+    })
+}
+
+/// Parse an observe definition at top level
+fn parse_observe_def(parser: &mut Parser) -> Result<ObserveDef, ParseError> {
+    let start = parser.current().map(|t| t.span.start).unwrap_or(0);
+    parser.consume(Token::Observe)?;
+
+    let target = match parser.peek().cloned() {
+        Some(Token::Ident(name)) => {
+            parser.advance();
+            name
+        }
+        _ => return Err(ParseError {
+            message: "Expected identifier after 'observe'".to_string(),
+            span: parser.current().map(|t| t.span.clone()).unwrap_or(Span::new(0, 0)),
+        }),
+    };
+
+    // Handle dotted access
+    let mut full_target = target;
+    while let Some(Token::Dot) = parser.peek() {
+        parser.advance();
+        if let Some(Token::Ident(field)) = parser.peek().cloned() {
+            parser.advance();
+            full_target = format!("{}.{}", full_target, field);
+        }
+    }
+
+    let condition = if let Some(Token::Where) = parser.peek() {
+        parser.advance();
+        Some(parse_expr(parser)?)
+    } else {
+        None
+    };
+
+    let end = parser.tokens.get(parser.pos.saturating_sub(1))
+        .map(|t| t.span.end)
+        .unwrap_or(0);
+
+    Ok(ObserveDef {
+        target: full_target,
+        condition,
+        span: Span::new(start, end),
+    })
+}
+
+/// Parse a reason expression
+/// Simple: reason "question"
+/// Structured: reason { observed: [expr, ...], question: "question" }
+fn parse_reason_expr(parser: &mut Parser) -> Result<Expr, ParseError> {
+    parser.consume(Token::Reason)?;
+
+    match parser.peek().cloned() {
+        Some(Token::String(question)) => {
+            parser.advance();
+            Ok(Expr::Reason {
+                observations: Vec::new(),
+                question,
+            })
+        }
+        Some(Token::LBrace) => {
+            parser.advance(); // consume {
+            let mut observations = Vec::new();
+            let mut question = String::new();
+
+            while parser.peek() != Some(&Token::RBrace) && !parser.is_at_end() {
+                parser.skip_newlines();
+
+                if let Some(Token::Ident(key)) = parser.peek().cloned() {
+                    parser.advance();
+                    parser.consume(Token::Colon)?;
+
+                    match key.as_str() {
+                        "observed" => {
+                            parser.consume(Token::LBracket)?;
+                            while parser.peek() != Some(&Token::RBracket) && !parser.is_at_end() {
+                                observations.push(parse_expr(parser)?);
+                                if let Some(Token::Comma) = parser.peek() {
+                                    parser.advance();
+                                }
+                            }
+                            parser.consume(Token::RBracket)?;
+                        }
+                        "question" => {
+                            if let Some(Token::String(q)) = parser.peek().cloned() {
+                                parser.advance();
+                                question = q;
+                            }
+                        }
+                        _ => {
+                            // Skip unknown key's value
+                            parser.advance();
+                        }
+                    }
+
+                    // Skip comma between fields
+                    if let Some(Token::Comma) = parser.peek() {
+                        parser.advance();
+                    }
+                    parser.skip_newlines();
+                } else {
+                    break;
+                }
+            }
+
+            parser.consume(Token::RBrace)?;
+
+            Ok(Expr::Reason {
+                observations,
+                question,
+            })
         }
         _ => Err(ParseError {
-            message: "Expected string after 'goal'".to_string(),
+            message: "Expected string or { after 'reason'".to_string(),
             span: parser.current().map(|t| t.span.clone()).unwrap_or(Span::new(0, 0)),
         }),
     }
@@ -942,7 +1127,7 @@ fn parse_invariant(parser: &mut Parser) -> Result<Expr, ParseError> {
     parse_expr(parser)
 }
 
-/// Parse a definition (type, function, goal, invariant, or annotated function)
+/// Parse a definition (type, function, goal, invariant, observe, or annotated function)
 fn parse_definition(parser: &mut Parser) -> Result<Option<Definition>, ParseError> {
     parser.skip_newlines();
 
@@ -952,6 +1137,9 @@ fn parse_definition(parser: &mut Parser) -> Result<Option<Definition>, ParseErro
         }
         Some(Token::Invariant) => {
             Ok(Some(Definition::Invariant(parse_invariant(parser)?)))
+        }
+        Some(Token::Observe) => {
+            Ok(Some(Definition::Observe(parse_observe_def(parser)?)))
         }
         Some(Token::AnnSelfHeal) => {
             // @self_heal annotation followed by function definition
@@ -1228,7 +1416,8 @@ main = 42
 
         assert_eq!(program.definitions.len(), 2); // 1 goal + 1 function
         if let Definition::Goal(g) = &program.definitions[0] {
-            assert_eq!(g, "fetch user and return profile");
+            assert_eq!(g.description, "fetch user and return profile");
+            assert!(g.check.is_none());
         } else {
             panic!("Expected goal definition");
         }
@@ -1246,15 +1435,65 @@ main = 42
 
         assert_eq!(program.definitions.len(), 3); // 2 goals + 1 function
         if let Definition::Goal(g1) = &program.definitions[0] {
-            assert_eq!(g1, "primary goal");
+            assert_eq!(g1.description, "primary goal");
         } else {
             panic!("Expected first goal");
         }
         if let Definition::Goal(g2) = &program.definitions[1] {
-            assert_eq!(g2, "secondary goal");
+            assert_eq!(g2.description, "secondary goal");
         } else {
             panic!("Expected second goal");
         }
+    }
+
+    #[test]
+    fn test_parse_goal_with_check() {
+        let source = r#"+http
+goal "all values positive" check x > 0
+main = 42
+"#;
+        let tokens = tokenize(source).unwrap();
+        let program = parse(tokens).unwrap();
+
+        if let Definition::Goal(g) = &program.definitions[0] {
+            assert_eq!(g.description, "all values positive");
+            assert!(g.check.is_some());
+        } else {
+            panic!("Expected goal definition");
+        }
+    }
+
+    #[test]
+    fn test_parse_observe() {
+        let source = r#"+http
+observe users
+main = 42
+"#;
+        let tokens = tokenize(source).unwrap();
+        let program = parse(tokens).unwrap();
+
+        assert!(matches!(&program.definitions[0], Definition::Observe(_)));
+    }
+
+    #[test]
+    fn test_parse_observe_in_block() {
+        let source = r#"+http
+main = : observe x; x
+"#;
+        let tokens = tokenize(source).unwrap();
+        let program = parse(tokens).unwrap();
+        // Should parse without error
+        assert!(!program.definitions.is_empty());
+    }
+
+    #[test]
+    fn test_parse_reason_simple() {
+        let source = r#"+http
+main = : result = reason "should I retry?"; result
+"#;
+        let tokens = tokenize(source).unwrap();
+        let program = parse(tokens).unwrap();
+        assert!(!program.definitions.is_empty());
     }
 
     #[test]

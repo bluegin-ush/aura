@@ -23,12 +23,34 @@ pub enum Definition {
     FuncDef(FuncDef),
     ApiDef(ApiDef),
     TestDef(TestDef),
-    /// Goal declaration - metadata that describes intent
-    /// Used for documentation and self-healing context
-    Goal(String),
+    /// Goal declaration - metadata that describes intent, optionally with a check expression
+    Goal(GoalDef),
     /// Invariant - constraint that healing cannot violate
     /// Invariants are checked before applying any fix
     Invariant(Expr),
+    /// Observe declaration at top level
+    Observe(ObserveDef),
+}
+
+/// Goal definition with optional active check expression
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GoalDef {
+    /// Human-readable description of the goal
+    pub description: String,
+    /// Optional check expression that evaluates to bool
+    /// When present, the goal is "active" and evaluated continuously
+    pub check: Option<Expr>,
+    pub span: Span,
+}
+
+/// Observe definition at top level
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ObserveDef {
+    /// Target expression to observe
+    pub target: String,
+    /// Optional condition for filtering observations
+    pub condition: Option<Expr>,
+    pub span: Span,
 }
 
 /// Definición de tipo (@User { ... })
@@ -283,6 +305,18 @@ pub enum Expr {
     Expect {
         condition: Box<Expr>,
         message: Option<String>,
+    },
+
+    // Observe - declare a variable/expression to be monitored
+    Observe {
+        target: String,
+        condition: Option<Box<Expr>>,
+    },
+
+    // Reason - explicit deliberation block
+    Reason {
+        observations: Vec<Expr>,
+        question: String,
     },
 }
 

@@ -1,12 +1,19 @@
 // VM de AURA
 // Intérprete básico para ejecutar código AURA
 
-use std::collections::HashMap;
+pub mod cognitive;
+pub mod checkpoint;
+pub mod runner;
+pub mod agent_cognitive;
+
+use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
-use crate::parser::{Program, Definition, Expr, BinaryOp, UnaryOp, FuncDef, TypeDef, SelfHealConfig};
+use crate::parser::{Program, Definition, Expr, BinaryOp, UnaryOp, FuncDef, TypeDef, SelfHealConfig, GoalDef};
 use crate::caps::http::{http_get, http_post, http_put, http_delete};
 use crate::caps::db::{db_connect, db_query, db_execute, db_close};
 use crate::caps::env::{env_get, env_get_or, env_set, env_remove, env_exists};
+pub use cognitive::{CognitiveRuntime, CognitiveDecision, ObservationEvent, DeliberationTrigger, NullCognitiveRuntime};
+pub use checkpoint::{VMCheckpoint, CheckpointManager};
 
 /// Convierte serde_json::Value a Value de AURA
 fn json_to_value(json: serde_json::Value) -> Value {
@@ -254,12 +261,24 @@ pub struct InvariantViolation {
 pub struct VM {
     env: Environment,
     /// Goals declarados en el programa (metadata para self-healing)
-    goals: Vec<String>,
+    goals: Vec<GoalDef>,
     /// Failed expectations (intent verifications that didn't pass)
     /// These don't crash the program but are registered for self-healing
     failed_expectations: Vec<ExpectationFailure>,
     /// Invariants - constraints that healing cannot violate
     invariants: Vec<Expr>,
+    /// Cognitive runtime (default: NullCognitiveRuntime for v1 compat)
+    cognitive: Box<dyn CognitiveRuntime>,
+    /// Execution step counter
+    step_count: u64,
+    /// Variables being observed by the cognitive runtime
+    observed_vars: HashSet<String>,
+    /// Checkpoint manager for backtrack support
+    checkpoint_manager: CheckpointManager,
+    /// Pending fixes accumulated during cognitive execution
+    pub pending_fixes: Vec<(String, String)>,
+    /// Goal evaluation interval (every N steps)
+    goal_check_interval: u64,
 }
 
 impl VM {
@@ -269,15 +288,47 @@ impl VM {
             goals: Vec::new(),
             failed_expectations: Vec::new(),
             invariants: Vec::new(),
+            cognitive: Box::new(NullCognitiveRuntime),
+            step_count: 0,
+            observed_vars: HashSet::new(),
+            checkpoint_manager: CheckpointManager::new(),
+            pending_fixes: Vec::new(),
+            goal_check_interval: 100,
         }
+    }
+
+    /// Creates a VM with a cognitive runtime attached
+    pub fn with_cognitive(cognitive: Box<dyn CognitiveRuntime>) -> Self {
+        Self {
+            env: Environment::new(),
+            goals: Vec::new(),
+            failed_expectations: Vec::new(),
+            invariants: Vec::new(),
+            cognitive,
+            step_count: 0,
+            observed_vars: HashSet::new(),
+            checkpoint_manager: CheckpointManager::new(),
+            pending_fixes: Vec::new(),
+            goal_check_interval: 100,
+        }
+    }
+
+    /// Returns whether the cognitive runtime is active
+    pub fn is_cognitive_active(&self) -> bool {
+        self.cognitive.is_active()
+    }
+
+    /// Returns the current step count
+    pub fn step_count(&self) -> u64 {
+        self.step_count
     }
 
     /// Carga un programa en la VM
     pub fn load(&mut self, program: &Program) {
         // Cargar goals (metadata)
         for def in &program.definitions {
-            if let Definition::Goal(goal) = def {
-                self.goals.push(goal.clone());
+            if let Definition::Goal(goal_def) = def {
+                self.goals.push(goal_def.clone());
             }
         }
 
@@ -330,9 +381,13 @@ impl VM {
     }
 
     /// Obtiene los goals declarados en el programa
-    /// Los goals son metadata que describe la intención del código
-    pub fn get_goals(&self) -> Vec<String> {
-        self.goals.clone()
+    pub fn get_goals(&self) -> &[GoalDef] {
+        &self.goals
+    }
+
+    /// Obtiene las descripciones de los goals como Vec<String> (backward compat)
+    pub fn get_goal_descriptions(&self) -> Vec<String> {
+        self.goals.iter().map(|g| g.description.clone()).collect()
     }
 
     /// Obtiene las expectativas fallidas (verificaciones de intención que no pasaron)
@@ -361,6 +416,10 @@ impl VM {
         self.goals.clear();
         self.failed_expectations.clear();
         self.invariants.clear();
+        self.step_count = 0;
+        self.observed_vars.clear();
+        self.checkpoint_manager = CheckpointManager::new();
+        self.pending_fixes.clear();
     }
 
     /// Obtiene los invariants como expresiones
@@ -440,6 +499,99 @@ impl VM {
     /// Verifica si 'main' tiene self-healing habilitado
     pub fn main_has_self_heal(&self) -> bool {
         self.has_self_heal("main")
+    }
+
+    /// Creates a checkpoint of the current variable state
+    pub fn checkpoint(&mut self, name: &str) {
+        let variables = self.capture_variables();
+        self.checkpoint_manager.save(name.to_string(), variables, self.step_count);
+        if self.cognitive.is_active() {
+            self.cognitive.observe(ObservationEvent::CheckpointCreated {
+                name: name.to_string(),
+            });
+            self.cognitive.set_available_checkpoints(self.checkpoint_manager.list());
+        }
+    }
+
+    /// Restores VM state from a checkpoint
+    pub fn restore_checkpoint(&mut self, name: &str) -> Result<(), RuntimeError> {
+        let cp = self.checkpoint_manager.restore(name)
+            .ok_or_else(|| RuntimeError::new(format!("Checkpoint not found: {}", name)))?;
+        let variables = cp.variables.clone();
+        self.restore_variables(variables);
+        Ok(())
+    }
+
+    /// Restores VM state from a checkpoint and applies adjustments
+    pub fn restore_with_adjustments(&mut self, name: &str, adjustments: Vec<(String, Value)>) -> Result<(), RuntimeError> {
+        let cp = self.checkpoint_manager.restore(name)
+            .ok_or_else(|| RuntimeError::new(format!("Checkpoint not found: {}", name)))?;
+        let mut variables = cp.variables.clone();
+        for (key, value) in adjustments {
+            variables.insert(key, value);
+        }
+        self.restore_variables(variables);
+        Ok(())
+    }
+
+    /// Captures all current variables into a HashMap
+    fn capture_variables(&self) -> HashMap<String, Value> {
+        let mut vars = HashMap::new();
+        for name in self.env.list_variables() {
+            if let Some(val) = self.env.get(&name) {
+                vars.insert(name, val);
+            }
+        }
+        vars
+    }
+
+    /// Restores variables from a HashMap (functions and types are NOT restored)
+    fn restore_variables(&mut self, variables: HashMap<String, Value>) {
+        for (name, value) in variables {
+            self.env.define(name, value);
+        }
+    }
+
+    /// Evaluates all active goals and triggers deliberation for failures
+    pub fn evaluate_goals(&mut self) -> Vec<CognitiveDecision> {
+        if !self.cognitive.is_active() {
+            return Vec::new();
+        }
+
+        let mut decisions = Vec::new();
+        let goals = self.goals.clone();
+
+        for goal in &goals {
+            if let Some(ref check) = goal.check {
+                match self.eval(check) {
+                    Ok(Value::Bool(true)) => {
+                        // Goal satisfied, continue
+                    }
+                    Ok(val) => {
+                        // Goal failed or returned non-bool
+                        let decision = self.cognitive.deliberate(
+                            DeliberationTrigger::GoalMisalignment {
+                                goal_description: goal.description.clone(),
+                                check_result: val,
+                            }
+                        );
+                        if !matches!(decision, CognitiveDecision::Continue) {
+                            decisions.push(decision);
+                        }
+                    }
+                    Err(_) => {
+                        // Error evaluating goal check, skip
+                    }
+                }
+            }
+        }
+
+        decisions
+    }
+
+    /// Returns the checkpoint manager
+    pub fn checkpoint_manager(&self) -> &CheckpointManager {
+        &self.checkpoint_manager
     }
 
     /// Llama a una función por nombre con argumentos dados
@@ -581,15 +733,48 @@ impl VM {
             Expr::Block(exprs) => {
                 let mut result = Value::Nil;
                 for expr in exprs {
+                    self.step_count += 1;
                     result = self.eval(expr)?;
+
+                    // Periodically check goals if cognitive runtime is active
+                    if self.cognitive.is_active() && self.step_count % self.goal_check_interval == 0 {
+                        let decisions = self.evaluate_goals();
+                        for decision in decisions {
+                            match decision {
+                                CognitiveDecision::Backtrack { checkpoint, adjustments } => {
+                                    self.restore_with_adjustments(&checkpoint, adjustments)?;
+                                    // Continue from restored state
+                                }
+                                CognitiveDecision::Halt(err) => return Err(err),
+                                CognitiveDecision::Fix { new_code, explanation } => {
+                                    self.pending_fixes.push((new_code, explanation));
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
                 }
                 Ok(result)
             }
 
             // Let binding
             Expr::Let { name, value } => {
+                let old_val = self.env.get(name).unwrap_or(Value::Nil);
                 let val = self.eval(value)?;
                 self.env.define(name.clone(), val.clone());
+
+                // If this variable is observed and cognitive runtime is active
+                if self.observed_vars.contains(name) && self.cognitive.is_active() {
+                    // Create implicit checkpoint
+                    self.checkpoint(&format!("let_{}", name));
+                    // Notify cognitive runtime
+                    self.cognitive.observe(ObservationEvent::ValueChanged {
+                        name: name.clone(),
+                        old_value: old_val,
+                        new_value: val.clone(),
+                    });
+                }
+
                 Ok(val)
             }
 
@@ -635,9 +820,85 @@ impl VM {
                         message.clone(),
                         cond_val,
                     );
-                    self.record_expectation_failure(failure);
-                    // Return false to indicate failure, but continue execution
-                    Ok(Value::Bool(false))
+                    self.record_expectation_failure(failure.clone());
+
+                    // If cognitive runtime is active, trigger deliberation
+                    if self.cognitive.is_active() {
+                        self.cognitive.observe(ObservationEvent::ExpectEvaluated {
+                            condition: format!("{:?}", condition),
+                            result: false,
+                            failure: Some(failure.clone()),
+                        });
+
+                        let decision = self.cognitive.deliberate(
+                            DeliberationTrigger::ExpectFailed { failure }
+                        );
+
+                        match decision {
+                            CognitiveDecision::Continue => Ok(Value::Bool(false)),
+                            CognitiveDecision::Override(val) => Ok(val),
+                            CognitiveDecision::Fix { new_code, explanation } => {
+                                self.pending_fixes.push((new_code, explanation));
+                                Ok(Value::Bool(false))
+                            }
+                            CognitiveDecision::Backtrack { checkpoint, adjustments } => {
+                                self.restore_with_adjustments(&checkpoint, adjustments)?;
+                                // After backtrack, return Nil to signal re-evaluation needed
+                                Ok(Value::Nil)
+                            }
+                            CognitiveDecision::Halt(err) => Err(err),
+                        }
+                    } else {
+                        // Return false to indicate failure, but continue execution
+                        Ok(Value::Bool(false))
+                    }
+                }
+            }
+
+            // Observe expression - register variable for monitoring
+            Expr::Observe { target, condition: _ } => {
+                self.observed_vars.insert(target.clone());
+                if self.cognitive.is_active() {
+                    // Create checkpoint at observe point
+                    self.checkpoint(&format!("observe_{}", target));
+                }
+                Ok(Value::Nil)
+            }
+
+            // Reason expression - explicit deliberation
+            Expr::Reason { observations, question } => {
+                if !self.cognitive.is_active() {
+                    return Ok(Value::Nil);
+                }
+
+                // Evaluate observation expressions
+                let mut obs_strs = Vec::new();
+                for obs_expr in observations {
+                    match self.eval(obs_expr) {
+                        Ok(val) => obs_strs.push(format!("{}", val)),
+                        Err(e) => obs_strs.push(format!("error: {}", e.message)),
+                    }
+                }
+
+                let decision = self.cognitive.deliberate(
+                    DeliberationTrigger::ExplicitReason {
+                        observations: obs_strs,
+                        question: question.clone(),
+                    }
+                );
+
+                match decision {
+                    CognitiveDecision::Continue => Ok(Value::Nil),
+                    CognitiveDecision::Override(val) => Ok(val),
+                    CognitiveDecision::Fix { new_code, explanation } => {
+                        self.pending_fixes.push((new_code, explanation));
+                        Ok(Value::Nil)
+                    }
+                    CognitiveDecision::Backtrack { checkpoint, adjustments } => {
+                        self.restore_with_adjustments(&checkpoint, adjustments)?;
+                        Ok(Value::Nil)
+                    }
+                    CognitiveDecision::Halt(err) => Err(err),
                 }
             }
 
@@ -918,6 +1179,11 @@ impl VM {
 
     /// Llama a una función definida por el usuario
     fn call_function(&mut self, func: &FuncDef, args: &[Value]) -> Result<Value, RuntimeError> {
+        // Create implicit checkpoint before function call (if cognitive active)
+        if self.cognitive.is_active() {
+            self.checkpoint(&format!("call_{}", func.name));
+        }
+
         // Crear nuevo entorno con los parámetros
         let mut new_env = Environment::new();
 
@@ -935,6 +1201,16 @@ impl VM {
         // Restaurar entorno
         if let Some(parent) = self.env.parent.take() {
             self.env = *parent;
+        }
+
+        // Notify cognitive runtime of function return
+        if self.cognitive.is_active() {
+            if let Ok(ref val) = result {
+                self.cognitive.observe(ObservationEvent::FunctionReturned {
+                    name: func.name.clone(),
+                    result: val.clone(),
+                });
+            }
         }
 
         result
@@ -1376,7 +1652,7 @@ main = 42
         let mut vm = VM::new();
         vm.load(&program);
 
-        let goals = vm.get_goals();
+        let goals = vm.get_goal_descriptions();
         assert_eq!(goals.len(), 2);
         assert_eq!(goals[0], "fetch user data");
         assert_eq!(goals[1], "return formatted profile");
@@ -1404,9 +1680,9 @@ main = 1
         let mut vm = VM::new();
         vm.load(&program);
 
-        assert_eq!(vm.get_goals().len(), 1);
+        assert_eq!(vm.get_goal_descriptions().len(), 1);
         vm.reset();
-        assert_eq!(vm.get_goals().len(), 0);
+        assert_eq!(vm.get_goal_descriptions().len(), 0);
     }
 
     #[test]
@@ -1574,6 +1850,56 @@ main = 42
         assert_eq!(vm.get_invariants().len(), 1);
         vm.reset();
         assert_eq!(vm.get_invariants().len(), 0);
+    }
+
+    #[test]
+    fn test_vm_new_is_not_cognitive() {
+        let vm = VM::new();
+        assert!(!vm.is_cognitive_active());
+    }
+
+    #[test]
+    fn test_vm_with_cognitive() {
+        use super::cognitive::NullCognitiveRuntime;
+        let vm = VM::with_cognitive(Box::new(NullCognitiveRuntime));
+        assert!(!vm.is_cognitive_active()); // NullCognitiveRuntime is not active
+    }
+
+    #[test]
+    fn test_observe_without_agent_is_noop() {
+        let source = r#"+http
+main = : observe x; x = 5; x
+"#;
+        // observe in block should parse and execute without crashing
+        let tokens = tokenize(source).expect("Tokenize failed");
+        let program = parse(tokens).expect("Parse failed");
+        let mut vm = VM::new();
+        vm.load(&program);
+        let result = vm.run();
+        // x is defined after observe, so this should work
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_reason_without_agent_returns_nil() {
+        let source = r#"+http
+main = : result = reason "should I retry?"; result
+"#;
+        let result = run_code(source);
+        assert_eq!(result.unwrap(), Value::Nil);
+    }
+
+    #[test]
+    fn test_checkpoint_basic() {
+        let mut vm = VM::new();
+        vm.define_var("x".to_string(), Value::Int(42));
+        vm.checkpoint("test_cp");
+        vm.define_var("x".to_string(), Value::Int(99));
+
+        // Restore
+        vm.restore_checkpoint("test_cp").unwrap();
+        // Note: restore_checkpoint only restores, doesn't clear other vars
+        assert_eq!(vm.env.get("x"), Some(Value::Int(42)));
     }
 
     #[test]

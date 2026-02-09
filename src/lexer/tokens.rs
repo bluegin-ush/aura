@@ -183,6 +183,15 @@ pub enum Token {
     #[token("invariant")]
     Invariant,
 
+    #[token("observe")]
+    Observe,
+
+    #[token("where")]
+    Where,
+
+    #[token("reason")]
+    Reason,
+
     // ═══════════════════════════════════════════════════════════
     // ESPECIALES AURA
     // ═══════════════════════════════════════════════════════════
@@ -414,6 +423,9 @@ impl Token {
                 | Token::Continue
                 | Token::Expect
                 | Token::Invariant
+                | Token::Observe
+                | Token::Where
+                | Token::Reason
         )
     }
 

@@ -14,6 +14,8 @@ pub enum EventType {
     Performance,
     /// Solicitud de expansión de funcionalidad
     Expansion,
+    /// Deliberation trigger from cognitive runtime
+    Deliberation,
 }
 
 /// Contexto del código relevante para la solicitud

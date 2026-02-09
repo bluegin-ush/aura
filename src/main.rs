@@ -20,6 +20,14 @@ enum Commands {
         /// File to execute
         file: PathBuf,
 
+        /// Enable cognitive runtime (observe, reason, goals, backtrack)
+        #[arg(long)]
+        cognitive: bool,
+
+        /// Provider to use with --cognitive (mock, claude, ollama)
+        #[arg(long, default_value = "mock")]
+        provider: String,
+
         /// Output result as structured JSON (agent-friendly)
         #[arg(long, help = "Output structured JSON with result, type, and duration")]
         json: bool,
@@ -218,8 +226,12 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Run { file, json } => {
-            run_file(&file, json);
+        Commands::Run { file, cognitive, provider, json } => {
+            if cognitive {
+                run_file_cognitive(&file, &provider, json);
+            } else {
+                run_file(&file, json);
+            }
         }
         Commands::Heal { file, provider, apply, json } => {
             heal_file(&file, &provider, apply, json);
@@ -287,6 +299,120 @@ fn run_file(path: &PathBuf, json_output: bool) {
                 println!("{}", run_result.to_json());
             } else {
                 println!("{}", result);
+            }
+        }
+        Err(e) => {
+            if json_output {
+                let result = RunResult::failure(JsonError::from_runtime_error(&e));
+                println!("{}", result.to_json());
+            } else {
+                eprintln!("Runtime error: {}", e.message);
+            }
+            std::process::exit(1);
+        }
+    }
+}
+
+fn run_file_cognitive(path: &PathBuf, provider: &str, json_output: bool) {
+    use aura::cli_output::{JsonError, RunResult, value_to_json};
+    use aura::loader;
+    use std::time::Instant;
+
+    // Read source for cognitive runner (needs raw source for re-parsing)
+    let source = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) => {
+            if json_output {
+                let result = RunResult::failure(JsonError::new("E001", &format!("Error reading file: {}", e)));
+                println!("{}", result.to_json());
+            } else {
+                eprintln!("Error reading file: {}", e);
+            }
+            std::process::exit(1);
+        }
+    };
+
+    // Also load with imports resolved to extract goals/invariants
+    let program = match loader::load_file(path) {
+        Ok(p) => p,
+        Err(e) => {
+            if json_output {
+                let result = RunResult::failure(JsonError::new("E001", &e.message));
+                println!("{}", result.to_json());
+            } else {
+                eprintln!("Error: {}", e);
+            }
+            std::process::exit(1);
+        }
+    };
+
+    // Extract goals and invariants from the program
+    let goals: Vec<aura::GoalDef> = program.definitions.iter().filter_map(|d| {
+        if let aura::Definition::Goal(g) = d { Some(g.clone()) } else { None }
+    }).collect();
+
+    let invariants: Vec<String> = program.definitions.iter().filter_map(|d| {
+        if let aura::Definition::Invariant(expr) = d { Some(format!("{:?}", expr)) } else { None }
+    }).collect();
+
+    // Create the cognitive runtime based on provider
+    let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+    let handle = rt.handle().clone();
+
+    let cognitive: Box<dyn aura::CognitiveRuntime> = match provider {
+        "mock" => {
+            let mock = aura::agent::MockProvider::new().with_latency(0);
+            Box::new(aura::AgentCognitiveRuntime::new(
+                mock, handle, goals, invariants, source.clone(),
+            ))
+        }
+        #[cfg(feature = "claude-api")]
+        "claude" => {
+            let claude = aura::agent::ClaudeProvider::from_env()
+                .expect("ANTHROPIC_API_KEY must be set for claude provider");
+            Box::new(aura::AgentCognitiveRuntime::new(
+                claude, handle, goals, invariants, source.clone(),
+            ))
+        }
+        #[cfg(feature = "ollama")]
+        "ollama" => {
+            let ollama = aura::agent::OllamaProvider::default();
+            Box::new(aura::AgentCognitiveRuntime::new(
+                ollama, handle, goals, invariants, source.clone(),
+            ))
+        }
+        other => {
+            if json_output {
+                let result = RunResult::failure(JsonError::new("E002", &format!("Unknown provider: {}", other)));
+                println!("{}", result.to_json());
+            } else {
+                eprintln!("Unknown provider: {}. Available: mock", other);
+                #[cfg(feature = "claude-api")]
+                eprintln!("  claude (requires ANTHROPIC_API_KEY)");
+                #[cfg(feature = "ollama")]
+                eprintln!("  ollama");
+            }
+            std::process::exit(1);
+        }
+    };
+
+    if !json_output {
+        eprintln!("Cognitive mode: provider={}", provider);
+    }
+
+    let start = Instant::now();
+    match aura::run_cognitive(&source, cognitive, 3) {
+        Ok(result) => {
+            let duration_ms = start.elapsed().as_millis() as u64;
+            if json_output {
+                let (json_value, type_name) = value_to_json(&result.value);
+                let run_result = RunResult::success(json_value, type_name, duration_ms);
+                println!("{}", run_result.to_json());
+            } else {
+                println!("{}", result.value);
+                if !result.applied_fixes.is_empty() {
+                    eprintln!("  [{} fix(es) applied, {} retries]", result.applied_fixes.len(), result.retries);
+                }
             }
         }
         Err(e) => {
@@ -486,6 +612,22 @@ fn run_repl() {
             continue;
         }
 
+        // Cognitive mode toggle
+        if input == ":cognitive on" {
+            println!("Cognitive mode ON (requires --cognitive flag at startup for full support)");
+            println!("Use 'aura run --cognitive file.aura' for cognitive execution");
+            continue;
+        }
+        if input == ":cognitive off" {
+            println!("Cognitive mode OFF");
+            continue;
+        }
+        if input == ":cognitive" {
+            let active = vm.is_cognitive_active();
+            println!("Cognitive mode: {}", if active { "ON" } else { "OFF" });
+            continue;
+        }
+
         // Comandos de introspeccion
         if input.starts_with('?') {
             handle_introspection(input, &vm);
@@ -569,8 +711,9 @@ fn handle_introspection(cmd: &str, vm: &aura::vm::VM) {
             println!("  ?help   - Muestra esta ayuda");
             println!();
             println!("Comandos especiales:");
-            println!("  :reset  - Reinicia el estado de la sesion");
-            println!("  exit    - Sale del REPL");
+            println!("  :reset      - Reinicia el estado de la sesion");
+            println!("  :cognitive  - Muestra estado del modo cognitivo");
+            println!("  exit        - Sale del REPL");
         }
         _ => println!("Comando desconocido. Usa ?help"),
     }

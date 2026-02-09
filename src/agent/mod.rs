@@ -74,7 +74,7 @@ pub use bridge::{AgentProvider, AgentError, MockProvider};
 pub use healing::{HealingEngine, HealingContext, HealingResult, HealingError, SafeHealingResult};
 pub use snapshot::{Snapshot, SnapshotId, SnapshotManager, SnapshotReason, SnapshotError, FileSnapshot, SnapshotSummary, RestoreResult};
 pub use undo::{UndoManager, UndoError, HealingAction, VerificationResult, UndoResult, RedoResult};
-pub use memory::{HealingMemory, Pattern as MemoryPattern, MemoryError, MEMORY_FILE};
+pub use memory::{HealingMemory, Pattern as MemoryPattern, MemoryError, MEMORY_FILE, ReasoningEpisode, EpisodeOutcome, EpisodeContext};
 
 #[cfg(feature = "claude-api")]
 pub use claude::ClaudeProvider;

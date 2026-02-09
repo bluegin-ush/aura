@@ -264,6 +264,17 @@ impl MockProvider {
                     "Necesito más detalles para expandir la funcionalidad",
                 )
             }
+            EventType::Deliberation => {
+                // Simular deliberacion cognitiva - generar un fix basado en el contexto
+                let error_msg = request.message.as_deref().unwrap_or("");
+                let source = &request.context.source;
+
+                let fixed_code = self.generate_smart_fix(error_msg, source);
+                let explanation = format!("Cognitive deliberation: {}", self.generate_explanation(error_msg));
+
+                let patch = Patch::new(source.clone(), fixed_code);
+                AgentResponse::patch(patch, &explanation, 0.85)
+            }
         };
 
         base_response.with_metadata(ResponseMetadata {

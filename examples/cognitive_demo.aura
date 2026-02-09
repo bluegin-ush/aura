@@ -1,0 +1,53 @@
+# Cognitive Runtime Demo
+#
+# This example demonstrates AURA v2.0 cognitive features:
+# - observe: monitor variable changes
+# - goal with check: active goal evaluation
+# - expect: intention verification with cognitive deliberation
+# - reason: explicit deliberation blocks
+#
+# Run with: aura run --cognitive examples/cognitive_demo.aura
+
++http +json
+
+goal "process user data correctly"
+goal "all users must have valid names" check users != nil
+
+# Define a simple user type
+@User {
+    id :i
+    name :s
+    email :s
+}
+
+# Simulated data source
+fetch_users() = [
+    {id: 1, name: "Alice", email: "alice@example.com"},
+    {id: 2, name: "Bob", email: "bob@example.com"},
+    {id: 3, name: "Charlie", email: "charlie@example.com"}
+]
+
+# Format a user for display
+format_user(user) = "#{user.id}: {user.name} <{user.email}>"
+
+main = {
+    # Observe the users variable - cognitive runtime monitors changes
+    users = fetch_users()
+    observe users
+
+    # Active goal check runs here (users != nil)
+
+    # Verify our expectation
+    expect len(users) > 0 : "should have users"
+
+    # Reason block: ask the cognitive runtime for a decision
+    strategy = reason "we have {len(users)} users, should we process all or filter?"
+
+    # Process users
+    results = map(users, format_user)
+
+    # Final expect
+    expect len(results) == len(users) : "all users should be formatted"
+
+    results
+}
