@@ -37,19 +37,19 @@ AURA cierra esta brecha sintetizando ideas de las tres tradiciones en un solo di
 
 El resultado es un lenguaje donde el modelo de ejecución cambia fundamentalmente:
 
-```mermaid
-graph LR
-    subgraph "Modelo v1 — ejecución tradicional"
-        A1[parsear] --> B1[ejecutar] --> C1[fallar] --> D1[reparar] --> E1[re-ejecutar]
-    end
-```
+**Modelo v1 — ejecución tradicional:**
 
 ```mermaid
 graph LR
-    subgraph "Modelo v2 — ejecución cognitiva"
-        A2[parsear] --> B2[ejecutar] --> C2[observar] --> D2[razonar] --> E2[ajustar] --> F2[continuar]
-        F2 -.-> C2
-    end
+    A1[parsear] --> B1[ejecutar] --> C1[fallar] --> D1[reparar] --> E1[re-ejecutar]
+```
+
+**Modelo v2 — ejecución cognitiva:**
+
+```mermaid
+graph LR
+    A2[parsear] --> B2[ejecutar] --> C2[observar] --> D2[razonar] --> E2[ajustar] --> F2[continuar]
+    F2 -.-> C2
 ```
 
 ### 1.3 Contribuciones
@@ -216,8 +216,8 @@ AURA introduce seis construcciones que forman su vocabulario cognitivo. Estas se
 #### 3.1.1 `goal`
 
 ```
-goal "process user data correctly"
-goal "all users must have valid names" check users != nil
+goal "procesar datos de usuario correctamente"
+goal "todos los usuarios deben tener nombres válidos" check usuarios != nil
 ```
 
 Los goals son declaraciones de nivel superior (`Definition::Goal(GoalDef)`) con una expresión `check` opcional. La estructura `GoalDef`:
@@ -237,9 +237,9 @@ La palabra clave `check` se parsea como un *soft keyword* (`Ident("check")`), no
 #### 3.1.2 `observe`
 
 ```
-observe users
-observe response.status
-observe data where valid == true
+observe usuarios
+observe respuesta.estado
+observe datos where valido == true
 ```
 
 `observe` declara un punto de monitoreo en runtime (`Expr::Observe`). Cuando una variable observada cambia de valor, la VM:
@@ -252,7 +252,7 @@ Sin un runtime cognitivo, `observe` es un no-op que retorna nil.
 #### 3.1.3 `expect`
 
 ```
-expect len(users) > 0 "should have users"
+expect len(usuarios) > 0 "debería haber usuarios"
 ```
 
 `expect` es verificación de intención (`Expr::Expect`). A diferencia de las aserciones que crashean ante un fallo, los expects se registran como `ExpectationFailure` y, cuando un runtime cognitivo está activo, disparan `DeliberationTrigger::ExpectFailed`. El runtime puede entonces decidir continuar, sobreescribir el resultado, generar un fix, o hacer backtrack.
@@ -260,7 +260,7 @@ expect len(users) > 0 "should have users"
 #### 3.1.4 `invariant`
 
 ```
-invariant len(users) > 0
+invariant len(usuarios) > 0
 ```
 
 Los invariantes (`Definition::Invariant(Expr)`) declaran restricciones que ninguna adaptación puede violar. Sirven como la frontera de seguridad del desarrollador: la función `validate_fix()` verifica que los fixes propuestos por el LLM no rompan invariantes antes de ser aplicados.
@@ -268,7 +268,7 @@ Los invariantes (`Definition::Invariant(Expr)`) declaran restricciones que ningu
 #### 3.1.5 `reason`
 
 ```
-strategy = reason "we have {len(users)} users, should we process all or filter?"
+estrategia = reason "tenemos {len(usuarios)} usuarios, procesamos todos o filtramos?"
 ```
 
 `reason` es un punto de deliberación explícito (`Expr::Reason`). La ejecución pausa, la pregunta y las observaciones recientes se envían al runtime cognitivo, y la decisión del LLM se convierte en el valor de la expresión. Esto permite *inyección de valores*: el LLM puede retornar un valor que se vincula a una variable y se usa en la computación subsiguiente.
@@ -279,7 +279,7 @@ Sin un runtime cognitivo, `reason` retorna nil.
 
 ```
 @self_heal(max_attempts: 5, mode: "semantic")
-process_data(data) = { ... }
+procesar_datos(datos) = { ... }
 ```
 
 Anotación a nivel de función (`SelfHealConfig`) que marca funciones individuales para reparación automática. Configurable con `max_attempts` y `mode` (technical, semantic, auto).
@@ -435,18 +435,18 @@ sequenceDiagram
     participant CP as CheckpointManager
     participant CR as CognitiveRuntime
 
-    VM->>CP: save("fetch_users", variables, step=3)
-    Note over CP: { users: [...], count: 3 }
+    VM->>CP: save("obtener_usuarios", variables, paso=3)
+    Note over CP: { usuarios: [...], contador: 3 }
 
     VM->>VM: ejecución continúa...
     VM->>CR: check_goals()
-    Note over CR: goal "all users must be active" → false
+    Note over CR: goal "todos los usuarios deben estar activos" → false
 
-    CR-->>VM: Backtrack{ checkpoint: "fetch_users",<br/>adjustments: [("users", filtered)] }
+    CR-->>VM: Backtrack{ checkpoint: "obtener_usuarios",<br/>adjustments: [("usuarios", filtrados)] }
 
-    VM->>CP: restore("fetch_users")
+    VM->>CP: restore("obtener_usuarios")
     CP-->>VM: variables restauradas al paso 3
-    VM->>VM: aplica ajustes: users = filtered_list
+    VM->>VM: aplica ajustes: usuarios = lista_filtrada
     VM->>VM: continúa ejecución desde paso 3
 ```
 
@@ -611,23 +611,23 @@ El siguiente programa AURA demuestra la ejecución cognitiva. Los comentarios an
 +http +json
 
 # El desarrollador declara su intención
-goal "process user data correctly"
-goal "all users must have valid names" check users != nil
+goal "procesar datos de usuario correctamente"
+goal "todos los usuarios deben tener nombres válidos" check usuarios != nil
 
 # Definición de tipo con anotaciones de validación
-@User {
+@Usuario {
     id :i
-    name :s
+    nombre :s
     email :s
 }
 
 # Función de fuente de datos
-fetch_users() = [{id: 1, name: "Alice", email: "alice@example.com"}, {id: 2, name: "Bob", email: "bob@example.com"}, {id: 3, name: "Charlie", email: "charlie@example.com"}]
+obtener_usuarios() = [{id: 1, nombre: "Alicia", email: "alicia@ejemplo.com"}, {id: 2, nombre: "Bruno", email: "bruno@ejemplo.com"}, {id: 3, nombre: "Carla", email: "carla@ejemplo.com"}]
 
 # Función de formateo
-format_user(user) = "User {user.id}: {user.name} <{user.email}>"
+formatear_usuario(u) = "Usuario {u.id}: {u.nombre} <{u.email}>"
 
-main = : users = fetch_users(); observe users; expect len(users) > 0 "should have users"; strategy = reason "we have users, should we process all or filter?"; first_user = first(users); format_user(first_user)
+main = : usuarios = obtener_usuarios(); observe usuarios; expect len(usuarios) > 0 "debería haber usuarios"; estrategia = reason "tenemos usuarios, procesamos todos o filtramos?"; primero = first(usuarios); formatear_usuario(primero)
 ```
 
 ### 5.1 Traza de ejecución bajo runtime cognitivo
@@ -645,34 +645,34 @@ sequenceDiagram
     P->>VM: cargar programa (goals, funciones, main)
     Note over VM: Goals registrados, CheckpointManager inicializado
 
-    VM->>VM: eval: users = fetch_users()
-    Note over VM: users = List[3 registros User]
+    VM->>VM: eval: usuarios = obtener_usuarios()
+    Note over VM: usuarios = List[3 registros Usuario]
 
-    VM->>CP: save("observe_users", vars, step=3)
-    VM->>CR: observe(ValueChanged{users: Nil → List[...]})
+    VM->>CP: save("observe_usuarios", vars, step=3)
+    VM->>CR: observe(ValueChanged{usuarios: Nil → List[...]})
     VM->>CR: check_goals()
-    Note over CR: "users != nil" → true ✓
+    Note over CR: "usuarios != nil" → true ✓
 
-    VM->>VM: eval: expect len(users) > 0
+    VM->>VM: eval: expect len(usuarios) > 0
     Note over VM: condición: true ✓
     VM->>CR: observe(ExpectEvaluated{result: true})
 
     VM->>CR: deliberate(ExplicitReason{question: "..."})
     CR->>LLM: pregunta + goals + observaciones
-    LLM-->>CR: Override("process_all")
-    CR-->>VM: strategy = "process_all"
+    LLM-->>CR: Override("procesar_todos")
+    CR-->>VM: estrategia = "procesar_todos"
 
-    VM->>VM: eval: first_user = first(users)
-    VM->>VM: eval: format_user(first_user)
-    Note over VM: "User 1: Alice <alice@example.com>"
+    VM->>VM: eval: primero = first(usuarios)
+    VM->>VM: eval: formatear_usuario(primero)
+    Note over VM: "Usuario 1: Alicia <alicia@ejemplo.com>"
 ```
 
 ### 5.2 Contrafactual: escenario de desalineación de goal
 
-Supongamos que `fetch_users()` retornó una lista incluyendo un usuario con `name: nil`. El goal `check users != nil` aún pasaría (la lista misma no es nil), pero imaginemos un goal más preciso:
+Supongamos que `obtener_usuarios()` retornó una lista incluyendo un usuario con `nombre: nil`. El goal `check usuarios != nil` aún pasaría (la lista misma no es nil), pero imaginemos un goal más preciso:
 
 ```aura
-goal "all names must be non-empty" check for(u in users) : u.name != nil
+goal "todos los nombres deben ser no vacíos" check for(u in usuarios) : u.nombre != nil
 ```
 
 Cuando la verificación del goal falla:
@@ -684,21 +684,21 @@ sequenceDiagram
     participant CR as CognitiveRuntime
     participant LLM as LLM
 
-    VM->>CP: save("observe_users", vars, step=3)
+    VM->>CP: save("observe_usuarios", vars, step=3)
     VM->>CR: check_goals()
-    Note over CR: "for(u in users): u.name != nil" → false ✗
+    Note over CR: "for(u in usuarios): u.nombre != nil" → false ✗
 
     CR->>LLM: GoalMisalignment + contexto + checkpoints
-    LLM-->>CR: Backtrack{checkpoint: "observe_users",<br/>adjustments: [("users", lista_filtrada)]}
+    LLM-->>CR: Backtrack{checkpoint: "observe_usuarios",<br/>adjustments: [("usuarios", lista_filtrada)]}
 
     CR-->>VM: Backtrack{...}
-    VM->>CP: restore("observe_users")
+    VM->>CP: restore("observe_usuarios")
     Note over VM: variables restauradas al paso 3
-    VM->>VM: aplica ajuste: users = [solo válidos]
+    VM->>VM: aplica ajuste: usuarios = [solo válidos]
     VM->>VM: continúa ejecución con datos corregidos ✓
 ```
 
-Este es el poder del backtracking basado en checkpoints con ajustes informados por LLM: el programa no crashea, no reinicia desde cero, y no aplica una estrategia predefinida frágil. El LLM entiende el goal ("all names must be non-empty"), examina los datos, y propone una corrección dirigida.
+Este es el poder del backtracking basado en checkpoints con ajustes informados por LLM: el programa no crashea, no reinicia desde cero, y no aplica una estrategia predefinida frágil. El LLM entiende el goal ("todos los nombres deben ser no vacíos"), examina los datos, y propone una corrección dirigida.
 
 ---
 
@@ -714,12 +714,12 @@ El runtime cognitivo de AURA puede formalizarse a través de múltiples lentes t
 
 ```mermaid
 graph LR
-    subgraph "MAPE-K mapeado a AURA"
-        M["Monitor<br/><code>observe()</code>"] --> A["Analyze<br/><code>DeliberationTrigger</code>"]
-        A --> P["Plan<br/>LLM delibera"]
-        P --> E["Execute<br/><code>CognitiveDecision</code>"]
+    subgraph "MAPE-K mapeado en AURA"
+        M["Monitorear<br/><code>observe()</code>"] --> A["Analizar<br/><code>DeliberationTrigger</code>"]
+        A --> P["Planificar<br/>LLM delibera"]
+        P --> E["Ejecutar<br/><code>CognitiveDecision</code>"]
         E -.-> M
-        K["Knowledge<br/><code>ReasoningEpisode</code><br/><code>HealingMemory</code>"]
+        K["Conocimiento<br/><code>ReasoningEpisode</code><br/><code>HealingMemory</code>"]
         K <-.-> M
         K <-.-> A
         K <-.-> P
