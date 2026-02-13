@@ -1,6 +1,6 @@
-# AURA: Incorporación de Deliberación Cognitiva en la Semántica de Lenguajes de Programación
+# AURA: Incorporación de deliberación cognitiva en la semántica de lenguajes de programación
 
-## Un Reporte Técnico sobre Agent-Unified Runtime Architecture
+## Un reporte técnico sobre Agent-Unified Runtime Architecture
 
 ---
 
@@ -10,19 +10,19 @@
 
 ## 1. Introducción
 
-### 1.1 La Brecha Paradigmática
+### 1.1 La brecha paradigmática
 
 Tres comunidades de investigación han desarrollado independientemente soluciones al problema de construir software que se adapte a condiciones inesperadas:
 
-**Programación Orientada a Agentes** (Shoham 1993; Rao 1996; Bordini et al. 2007) introdujo actitudes mentales---creencias, deseos, intenciones---como primitivas de programación. Lenguajes como AgentSpeak/Jason, GOAL y 2APL implementan la arquitectura BDI (Belief-Desire-Intention) con razonamiento explícito sobre objetivos y manejo de fallos en planes. Sin embargo, estos lenguajes son anteriores a la era de los LLM: su "razonamiento" es búsqueda en biblioteca de planes, no deliberación abierta.
+**Programación orientada a agentes** (Shoham 1993; Rao 1996; Bordini et al. 2007) introdujo actitudes mentales---creencias, deseos, intenciones---como primitivas de programación. Lenguajes como AgentSpeak/Jason, GOAL y 2APL implementan la arquitectura BDI (Belief-Desire-Intention) con razonamiento explícito sobre objetivos y manejo de fallos en planes. Sin embargo, estos lenguajes son anteriores a la era de los LLM: su "razonamiento" es búsqueda en biblioteca de planes, no deliberación abierta.
 
-**Reparación Automática de Programas** (Le Goues et al. 2012; Xia & Zhang 2023; Long & Rinard 2016) desarrolló técnicas para corregir errores automáticamente, desde reparación basada en búsqueda (GenProg) hasta reparación conversacional con LLM (ChatRepair). Estos sistemas logran resultados impresionantes en benchmarks, pero todos operan *post-mortem*: el programa primero debe fallar, producir un fallo de test o mensaje de error, y luego una herramienta externa propone un parche. Ninguna herramienta APR tiene acceso al estado de ejecución en vivo.
+**Reparación automática de programas** (Le Goues et al. 2012; Xia & Zhang 2023; Long & Rinard 2016) desarrolló técnicas para corregir errores automáticamente, desde reparación basada en búsqueda (GenProg) hasta reparación conversacional con LLM (ChatRepair). Estos sistemas logran resultados impresionantes en benchmarks, pero todos operan *post-mortem*: el programa primero debe fallar, producir un fallo de test o mensaje de error, y luego una herramienta externa propone un parche. Ninguna herramienta APR tiene acceso al estado de ejecución en vivo.
 
-**Sistemas Auto-Adaptativos** (Kephart & Chess 2003; Garlan et al. 2004; Weyns et al. 2012) formalizaron el ciclo MAPE-K (Monitorear-Analizar-Planificar-Ejecutar sobre Conocimiento compartido) para computación autónoma. Sistemas como Rainbow detectan violaciones de restricciones arquitectónicas y aplican estrategias de reparación predefinidas. Estos operan a nivel de infraestructura, no a nivel de lenguaje de programación.
+**Sistemas auto-adaptativos** (Kephart & Chess 2003; Garlan et al. 2004; Weyns et al. 2012) formalizaron el ciclo MAPE-K (Monitorear-Analizar-Planificar-Ejecutar sobre Conocimiento compartido) para computación autónoma. Sistemas como Rainbow detectan violaciones de restricciones arquitectónicas y aplican estrategias de reparación predefinidas. Estos operan a nivel de infraestructura, no a nivel de lenguaje de programación.
 
 A pesar de décadas de progreso en cada comunidad, persiste una brecha fundamental: **ningún lenguaje de programación existente integra deliberación cognitiva---la capacidad de pausar la ejecución, razonar sobre el estado actual contra intenciones declaradas, y elegir entre intervenciones estructuralmente diversas---en su semántica de ejecución.**
 
-### 1.2 La Síntesis
+### 1.2 La síntesis
 
 AURA cierra esta brecha sintetizando ideas de las tres tradiciones en un solo diseño de lenguaje:
 
@@ -30,12 +30,27 @@ AURA cierra esta brecha sintetizando ideas de las tres tradiciones en un solo di
 |--------|---------|------------------|
 | Arquitecturas BDI | Goals como actitudes mentales de primera clase | `goal "descripción" check expr` --- goals con expresiones de verificación evaluadas en runtime |
 | Verificación en runtime | Monitoreo continuo de propiedades | `observe variable` --- declara puntos de monitoreo en runtime |
-| Diseño por Contrato | Precondiciones e invariantes | `invariant expr` --- restricciones que acotan todas las adaptaciones |
+| Diseño por contrato | Precondiciones e invariantes | `invariant expr` --- restricciones que acotan todas las adaptaciones |
 | Ciclo MAPE-K | Ciclo Monitorear-Analizar-Planificar-Ejecutar | `observe` -> `deliberate()` -> `CognitiveDecision` -> aplicar |
 | Checkpoint/rollback | Gestión transaccional de estado | `CheckpointManager` --- snapshots nombrados con restauración y ajustes |
 | Frameworks de agentes LLM | Razonamiento potenciado por LLM | `reason "pregunta"` --- deliberación explícita con inyección de valores |
 
-El resultado es un lenguaje donde el modelo de ejecución cambia de `parsear -> ejecutar -> fallar -> reparar -> re-ejecutar` a `parsear -> ejecutar -> observar -> razonar -> ajustar -> continuar`.
+El resultado es un lenguaje donde el modelo de ejecución cambia fundamentalmente:
+
+```mermaid
+graph LR
+    subgraph "Modelo v1 — ejecución tradicional"
+        A1[parsear] --> B1[ejecutar] --> C1[fallar] --> D1[reparar] --> E1[re-ejecutar]
+    end
+```
+
+```mermaid
+graph LR
+    subgraph "Modelo v2 — ejecución cognitiva"
+        A2[parsear] --> B2[ejecutar] --> C2[observar] --> D2[razonar] --> E2[ajustar] --> F2[continuar]
+        F2 -.-> C2
+    end
+```
 
 ### 1.3 Contribuciones
 
@@ -53,9 +68,9 @@ Este reporte hace las siguientes afirmaciones, cada una respaldada por evidencia
 
 ---
 
-## 2. Trabajo Relacionado
+## 2. Trabajo relacionado
 
-### 2.1 Lenguajes de Programación Orientados a Agentes
+### 2.1 Lenguajes de programación orientados a agentes
 
 **AgentSpeak(L)** (Rao 1996) introdujo el modelo de programación BDI dominante: los agentes tienen creencias (hechos tipo Prolog), eventos disparadores activan planes de una biblioteca de planes, y las intenciones son pilas de planes parcialmente ejecutados. **Jason** (Bordini et al. 2007) es la implementación más completa, añadiendo actos de habla, entornos y abstracciones organizacionales. Los goals en AgentSpeak son átomos simbólicos (`!achieve_goal`) que disparan selección de planes; el fallo causa abandono de intención o re-planificación dentro de la biblioteca de planes.
 
@@ -71,7 +86,7 @@ Este reporte hace las siguientes afirmaciones, cada una respaldada por evidencia
 
 *Tabla 1: Representación de goals a través de lenguajes orientados a agentes*
 
-| Lenguaje | Representación del Goal | Momento de Evaluación | Respuesta ante Fallo |
+| Lenguaje | Representación del goal | Momento de evaluación | Respuesta ante fallo |
 |----------|-------------------|-------------------|-----------------|
 | AgentSpeak | Átomo simbólico (`!g`) | Al dispararse | Abandonar intención |
 | GOAL | Fórmula lógica | Por ciclo de deliberación | Re-seleccionar plan |
@@ -79,7 +94,7 @@ Este reporte hace las siguientes afirmaciones, cada una respaldada por evidencia
 | 2APL | Fórmula lógica | Por ciclo, PR-rules | Revisión basada en reglas |
 | **AURA** | **Expresión del lenguaje anfitrión** | **Continua, por paso** | **Deliberación cognitiva + backtrack** |
 
-### 2.2 Reparación Automática de Programas
+### 2.2 Reparación automática de programas
 
 **GenProg** (Le Goues et al. 2012) fue pionero en la reparación automatizada de programas basada en búsqueda usando programación genética para evolucionar parches. **SemFix** (Nguyen et al. 2013) y **Angelix** (Mechtaev et al. 2016) introdujeron reparación a nivel semántico usando ejecución simbólica y resolución de restricciones. **Prophet** (Long & Rinard 2016) aprendió modelos de corrección de código a partir de parches humanos para rankear candidatos.
 
@@ -88,29 +103,29 @@ La era de los LLM transformó el campo. **ChatRepair** (Xia & Zhang 2023) usa in
 **La limitación post-mortem.** Todas las herramientas APR---clásicas y basadas en LLM---comparten una arquitectura fundamental:
 
 ```
-[Programa falla] -> [Extraer código + error] -> [Enviar a herramienta de reparación] -> [Obtener parche] -> [Aplicar] -> [Re-ejecutar]
+[Programa falla] → [Extraer código + error] → [Enviar a herramienta] → [Obtener parche] → [Aplicar] → [Re-ejecutar]
 ```
 
 Ninguna tiene acceso al estado de ejecución en vivo. Ninguna puede inyectar valores a mitad de ejecución. Ninguna puede hacer backtrack a un checkpoint con ajustes. La herramienta de reparación nunca ve qué variables tenían qué valores en el momento del fallo, qué goals pretendía el desarrollador (más allá de aserciones de test), o el camino de ejecución que llevó al error.
 
-### 2.3 Sistemas Auto-Adaptativos
+### 2.3 Sistemas auto-adaptativos
 
-**Computación Autónoma** (Kephart & Chess 2003) propuso la arquitectura de referencia MAPE-K: Monitorear (recolectar datos vía sensores), Analizar (determinar si se necesita adaptación), Planificar (seleccionar estrategia), Ejecutar (aplicar vía efectores), sobre Conocimiento compartido. **Rainbow** (Garlan et al. 2004) implementa MAPE-K a nivel arquitectónico, monitoreando sistemas en ejecución contra restricciones y aplicando estrategias de reparación predefinidas.
+**Computación autónoma** (Kephart & Chess 2003) propuso la arquitectura de referencia MAPE-K: Monitorear (recolectar datos vía sensores), Analizar (determinar si se necesita adaptación), Planificar (seleccionar estrategia), Ejecutar (aplicar vía efectores), sobre Conocimiento compartido. **Rainbow** (Garlan et al. 2004) implementa MAPE-K a nivel arquitectónico, monitoreando sistemas en ejecución contra restricciones y aplicando estrategias de reparación predefinidas.
 
 **FORMS** (Weyns et al. 2012) proporciona un modelo de referencia formal para sistemas auto-adaptativos con semántica rigurosa para el sistema gestionado, entorno, goals de adaptación, y ciclo de retroalimentación.
 
 **La limitación de capa externa.** Todas las implementaciones MAPE-K añaden monitoreo y adaptación como una capa arquitectónica externa. El sistema gestionado es una caja negra observada a través de sondas. Las estrategias de adaptación son configuraciones predefinidas, no modificaciones de código generadas en runtime. La lógica de adaptación está separada de la lógica del programa.
 
-### 2.4 Arquitecturas Cognitivas
+### 2.4 Arquitecturas cognitivas
 
 **Soar** (Laird et al. 1987; Newell 1990) implementa un sistema de producción con sub-goalificación universal: cuando ninguna producción se dispara, un *impasse* activa la creación automática de sub-goals. El mecanismo de *chunking* de Soar aprende nuevas producciones a partir de la resolución de sub-goals, creando un ciclo de aprendizaje. **ACT-R** (Anderson & Lebiere 1998; Anderson et al. 2004) modela la cognición como la interacción de buffers modulares (visual, motor, memoria declarativa, buffer de goals) mediados por reglas de producción. **CLARION** (Sun 2016) modela explícitamente la interacción entre conocimiento implícito (subsimbólico) y explícito (simbólico). **LIDA** (Franklin et al. 2014) implementa la Teoría del Espacio de Trabajo Global con un mecanismo de difusión similar a la consciencia.
 
 **La relevancia.** El runtime cognitivo de AURA implementa un ciclo que mapea directamente a componentes de arquitecturas cognitivas:
 
-| Componente Cognitivo | Implementación en AURA |
+| Componente cognitivo | Implementación en AURA |
 |---|---|
 | Percepción | `observe()` --- detección de eventos durante la ejecución |
-| Memoria de Trabajo | Buffer de observaciones + contexto de ejecución actual |
+| Memoria de trabajo | Buffer de observaciones + contexto de ejecución actual |
 | Deliberación | `deliberate()` --- invocación del LLM con contexto empaquetado |
 | Decisión | Enum `CognitiveDecision` --- cinco tipos de intervención |
 | Acción | Hot reload, inyección de valor, restauración de checkpoint |
@@ -119,15 +134,15 @@ Ninguna tiene acceso al estado de ejecución en vivo. Ninguna puede inyectar val
 
 Esto convierte al runtime de AURA en una arquitectura cognitiva en sí misma, en lugar de un lenguaje usado para *implementar* una arquitectura cognitiva---una distinción sin precedentes en la literatura.
 
-### 2.5 Arquitecturas Reflectivas y de Meta-Nivel
+### 2.5 Arquitecturas reflectivas y de meta-nivel
 
-**3-Lisp de Smith** (Smith 1984) introdujo la reflexión computacional: un programa que puede inspeccionar y modificar su propia ejecución. **CLOS MOP** (Kiczales et al. 1991) proporcionó un protocolo de meta-objetos que permite a los programas personalizar su propio sistema de clases. **Programación Orientada a Aspectos** (Kiczales et al. 1997) introdujo puntos de unión donde preocupaciones transversales pueden interceptar la ejecución.
+**3-Lisp de Smith** (Smith 1984) introdujo la reflexión computacional: un programa que puede inspeccionar y modificar su propia ejecución. **CLOS MOP** (Kiczales et al. 1991) proporcionó un protocolo de meta-objetos que permite a los programas personalizar su propio sistema de clases. **Programación orientada a aspectos** (Kiczales et al. 1997) introdujo puntos de unión donde preocupaciones transversales pueden interceptar la ejecución.
 
-**Efectos Algebraicos** (Plotkin & Pretnar 2009; Bauer & Pretnar 2015) proporcionan el modelo formal más cercano: las computaciones pueden "ceder" efectos a handlers que los inspeccionan y reanudan. El puente cognitivo de AURA puede formalizarse como un handler de efectos algebraicos donde el efecto es "necesito asistencia cognitiva" y el handler es el LLM. La diferencia clave: los handlers de efectos algebraicos se definen estáticamente; el "handler" de AURA genera respuestas novedosas dinámicamente.
+**Efectos algebraicos** (Plotkin & Pretnar 2009; Bauer & Pretnar 2015) proporcionan el modelo formal más cercano: las computaciones pueden "ceder" efectos a handlers que los inspeccionan y reanudan. El puente cognitivo de AURA puede formalizarse como un handler de efectos algebraicos donde el efecto es "necesito asistencia cognitiva" y el handler es el LLM. La diferencia clave: los handlers de efectos algebraicos se definen estáticamente; el "handler" de AURA genera respuestas novedosas dinámicamente.
 
 **El sistema de condiciones/restarts de Common Lisp** es el precedente clásico más cercano a la intervención a mitad de ejecución de AURA. Cuando un error señala una condición, los handlers pueden elegir entre restarts predefinidos (ej., `use-value`, `store-value`, `abort`). AURA generaliza esto: en lugar de restarts definidos por el programador, el LLM genera intervenciones novedosas informadas por el contexto de runtime, goals e invariantes.
 
-### 2.6 Sistemas de Programación Integrados con LLM
+### 2.6 Sistemas de programación integrados con LLM
 
 **LMQL** (Beurer-Kellner et al. 2023) es la comparación más relevante como lenguaje de programación real (publicado en PLDI) que extiende Python con generación restringida de LLM. LMQL compila a máscaras a nivel de token para decodificación restringida. Sin embargo, se enfoca en restricciones en tiempo de generación, no en razonamiento de agentes---no tiene goals, observación, auto-reparación, ni runtime cognitivo.
 
@@ -137,7 +152,7 @@ Esto convierte al runtime de AURA en una arquitectura cognitiva en sí misma, en
 
 *Tabla 2: Sistemas de programación integrados con LLM*
 
-| Sistema | ¿Es un Lenguaje? | ¿LLM como Primitiva? | ¿Goals? | ¿Auto-Reparación? | ¿Ciclo en Runtime? |
+| Sistema | ¿Es un lenguaje? | ¿LLM como primitiva? | ¿Goals? | ¿Auto-reparación? | ¿Ciclo en runtime? |
 |--------|---------------|-------------------|--------|---------------|---------------|
 | LMQL | **Sí** | Sí (generación restringida) | No | No | No |
 | DSPy | Parcial (DSL en Python) | Sí (signatures) | No | Optimización de prompt | No |
@@ -148,9 +163,53 @@ Esto convierte al runtime de AURA en una arquitectura cognitiva en sí misma, en
 
 ---
 
-## 3. Diseño e Implementación
+## 3. Diseño e implementación
 
-### 3.1 Primitivas Cognitivas
+La siguiente figura muestra la arquitectura general del runtime cognitivo de AURA, desde el código fuente hasta la intervención del LLM:
+
+```mermaid
+graph TB
+    subgraph "Código fuente AURA"
+        SRC["goal, observe, expect,<br/>invariant, reason"]
+    end
+
+    subgraph "Compilación"
+        LEX[Lexer<br/>logos] --> PAR[Parser] --> AST[AST<br/>nodos cognitivos]
+    end
+
+    subgraph "Máquina virtual"
+        VM[VM<br/>eval + step_count]
+        CP[CheckpointManager<br/>snapshots nombrados]
+        OBS[observed_vars<br/>HashSet]
+        PF[pending_fixes<br/>Vec]
+    end
+
+    subgraph "Runtime cognitivo"
+        CR["trait CognitiveRuntime<br/>observe() · deliberate()<br/>check_goals() · is_active()"]
+        NULL[NullCognitiveRuntime<br/>cero overhead]
+        AGENT["AgentCognitiveRuntime&lt;P&gt;<br/>buffer · traza · safety"]
+    end
+
+    subgraph "Proveedores LLM"
+        MOCK[MockProvider]
+        CLAUDE[ClaudeProvider]
+        OLLAMA[OllamaProvider]
+    end
+
+    SRC --> LEX
+    AST --> VM
+    VM <--> CR
+    VM <--> CP
+    VM <--> OBS
+    VM <--> PF
+    CR --- NULL
+    CR --- AGENT
+    AGENT <--> MOCK
+    AGENT <--> CLAUDE
+    AGENT <--> OLLAMA
+```
+
+### 3.1 Primitivas cognitivas
 
 AURA introduce seis construcciones que forman su vocabulario cognitivo. Estas se parsean en nodos AST---son parte de la gramática del lenguaje, no funciones de biblioteca.
 
@@ -225,7 +284,7 @@ process_data(data) = { ... }
 
 Anotación a nivel de función (`SelfHealConfig`) que marca funciones individuales para reparación automática. Configurable con `max_attempts` y `mode` (technical, semantic, auto).
 
-### 3.2 El Trait CognitiveRuntime
+### 3.2 El trait CognitiveRuntime
 
 El trait `CognitiveRuntime` define la interfaz entre la VM y el agente cognitivo:
 
@@ -245,7 +304,34 @@ pub trait CognitiveRuntime: Send {
 
 El `NullCognitiveRuntime` implementa todas las operaciones como no-ops con `is_active() = false`, proporcionando cero overhead para ejecución no cognitiva.
 
-### 3.3 El Álgebra de Intervención de Cinco Modos
+El siguiente diagrama muestra cómo la VM interactúa con el trait durante la evaluación de expresiones:
+
+```mermaid
+sequenceDiagram
+    participant VM as VM (eval)
+    participant CR as CognitiveRuntime
+    participant LLM as Proveedor LLM
+
+    VM->>VM: eval(Expr::Let) — variable observada
+    VM->>CR: observe(ValueChanged)
+    VM->>CR: check_goals()
+    CR-->>VM: [Continue]
+
+    VM->>VM: eval(Expr::Expect) — falla
+    VM->>CR: observe(ExpectEvaluated)
+    VM->>CR: deliberate(ExpectFailed)
+    CR->>LLM: request con contexto completo
+    LLM-->>CR: respuesta
+    CR-->>VM: Override(valor) | Fix{...} | Backtrack{...}
+
+    VM->>VM: eval(Expr::Reason)
+    VM->>CR: deliberate(ExplicitReason)
+    CR->>LLM: pregunta + observaciones + goals
+    LLM-->>CR: decisión
+    CR-->>VM: Override(valor_inyectado)
+```
+
+### 3.3 El álgebra de intervención de cinco modos
 
 `CognitiveDecision` define cinco intervenciones estructuralmente tipadas:
 
@@ -259,7 +345,25 @@ pub enum CognitiveDecision {
 }
 ```
 
-Esto es más rico que cualquier modelo de intervención existente:
+```mermaid
+graph TD
+    T[Disparador de deliberación] --> LLM[LLM delibera]
+    LLM --> C{Decisión}
+
+    C -->|"sin cambios"| CONT[Continue<br/>La ejecución sigue normalmente]
+    C -->|"inyectar valor"| OVR["Override(Value)<br/>Reemplaza el resultado de la expresión<br/>con un valor elegido por el LLM"]
+    C -->|"parchear código"| FIX["Fix{new_code, explanation}<br/>Reescribe el fuente y re-ejecuta<br/>desde el inicio"]
+    C -->|"retroceder"| BT["Backtrack{checkpoint, adjustments}<br/>Restaura la VM al checkpoint nombrado<br/>con ajustes en variables"]
+    C -->|"detener"| HALT["Halt(error)<br/>Detiene la ejecución<br/>con explicación"]
+
+    style CONT fill:#d4edda
+    style OVR fill:#cce5ff
+    style FIX fill:#fff3cd
+    style BT fill:#f8d7da
+    style HALT fill:#e2e3e5
+```
+
+Comparación con modelos de intervención existentes:
 
 | Intervención | Semántica | Precedente |
 |---|---|---|
@@ -271,13 +375,13 @@ Esto es más rico que cualquier modelo de intervención existente:
 
 La intervención `Backtrack` es particularmente novedosa. A diferencia de las herramientas APR que deben re-ejecutar desde cero, y a diferencia de la supervisión de Erlang que reinicia desde el estado inicial, AURA puede restaurar a cualquier checkpoint nombrado *con ajustes*---el LLM especifica qué variables modificar antes de reanudar. Esto permite re-ejecución parcial con correcciones informadas, una capacidad sin precedentes en la literatura.
 
-### 3.4 Seguridad: Adaptación Acotada por Invariantes
+### 3.4 Seguridad: adaptación acotada por invariantes
 
 La función `validate_fix()` impone restricciones de seguridad antes de que cualquier modificación propuesta por el LLM sea aplicada:
 
-1. **Restricción de tamaño**: Los fixes que exceden `max_fix_lines` (por defecto: 50) son rechazados, previniendo reescrituras completas del programa.
-2. **Validez sintáctica**: Cada fix propuesto debe tokenizarse y parsearse como AURA válido.
-3. **Inmutabilidad de goals**: El fix debe preservar todos los goals declarados---sin adiciones, sin eliminaciones, sin modificaciones. Los goals son dominio exclusivo del desarrollador.
+1. **Restricción de tamaño**: los fixes que exceden `max_fix_lines` (por defecto: 50) son rechazados, previniendo reescrituras completas del programa.
+2. **Validez sintáctica**: cada fix propuesto debe tokenizarse y parsearse como AURA válido.
+3. **Inmutabilidad de goals**: el fix debe preservar todos los goals declarados---sin adiciones, sin eliminaciones, sin modificaciones. Los goals son dominio exclusivo del desarrollador.
 4. **Profundidad de backtrack**: `max_backtrack_depth` (por defecto: 5) previene ciclos infinitos de backtrack.
 5. **Seguimiento de progreso**: `max_deliberations_without_progress` (por defecto: 3) detiene el razonamiento descontrolado.
 
@@ -289,9 +393,28 @@ pub struct CognitiveSafetyConfig {
 }
 ```
 
+```mermaid
+graph TD
+    FIX[Fix propuesto por LLM] --> S1{¿Tamaño ≤ 50 líneas?}
+    S1 -->|No| REJ1[Rechazado:<br/>fix demasiado grande]
+    S1 -->|Sí| S2{¿Parsea como AURA válido?}
+    S2 -->|No| REJ2[Rechazado:<br/>sintaxis inválida]
+    S2 -->|Sí| S3{¿Preserva todos los goals?}
+    S3 -->|No| REJ3[Rechazado:<br/>goals modificados]
+    S3 -->|Sí| S4{¿No introduce goals nuevos?}
+    S4 -->|No| REJ4[Rechazado:<br/>goals agregados]
+    S4 -->|Sí| OK[Fix aceptado ✓<br/>aplicar y re-ejecutar]
+
+    style REJ1 fill:#f8d7da
+    style REJ2 fill:#f8d7da
+    style REJ3 fill:#f8d7da
+    style REJ4 fill:#f8d7da
+    style OK fill:#d4edda
+```
+
 Esto establece un espacio de adaptación formalmente acotado: el LLM puede modificar el programa, pero solo dentro de las restricciones que el desarrollador ha declarado. Este es un patrón de diseño novedoso---**restricciones declaradas por el desarrollador sobre la modificación automatizada de programas**---que no tiene precedente directo en la literatura de APR o sistemas auto-adaptativos.
 
-### 3.5 Sistema de Checkpoints
+### 3.5 Sistema de checkpoints
 
 El `CheckpointManager` mantiene snapshots nombrados del estado de la VM:
 
@@ -306,23 +429,25 @@ pub struct VMCheckpoint {
 
 Los checkpoints se crean implícitamente (ante disparadores de `observe`, antes de llamadas a funciones) y pueden restaurarse con ajustes:
 
-```
-Estado de la VM en checkpoint "fetch_users": { users = [...], count = 3 }
-                    |
-                    v
-Desalineación de goal detectada: "all users must be active"
-                    |
-                    v
-cognitive.deliberate(GoalMisalignment{...})
-                    |
-                    v
-CognitiveDecision::Backtrack {
-    checkpoint: "fetch_users",
-    adjustments: [("users", filtered_active_users)]
-}
-                    |
-                    v
-La VM restaura a "fetch_users", aplica ajustes, continúa
+```mermaid
+sequenceDiagram
+    participant VM as VM
+    participant CP as CheckpointManager
+    participant CR as CognitiveRuntime
+
+    VM->>CP: save("fetch_users", variables, step=3)
+    Note over CP: { users: [...], count: 3 }
+
+    VM->>VM: ejecución continúa...
+    VM->>CR: check_goals()
+    Note over CR: goal "all users must be active" → false
+
+    CR-->>VM: Backtrack{ checkpoint: "fetch_users",<br/>adjustments: [("users", filtered)] }
+
+    VM->>CP: restore("fetch_users")
+    CP-->>VM: variables restauradas al paso 3
+    VM->>VM: aplica ajustes: users = filtered_list
+    VM->>VM: continúa ejecución desde paso 3
 ```
 
 Esto combina ideas de memoria transaccional de software (Shavit & Touitou 1995; Harris et al. 2005), backtracking cronológico de Prolog, y manejo de fallos de planes BDI, pero la síntesis---backtracking con ajustes sugeridos por LLM en un ciclo de ejecución cognitiva---es nueva.
@@ -351,12 +476,12 @@ pub struct AgentCognitiveRuntime<P: AgentProvider> {
 
 Decisiones de diseño clave:
 
-- **Puente async-sync**: La VM es síncrona; el `AgentProvider` es async. `tokio_handle.block_on()` tiende el puente, manteniendo simple la implementación de la VM.
-- **Agrupación de observaciones**: Los eventos se acumulan en `observation_buffer` y se drenan después de cada deliberación, proporcionando al LLM contexto acumulativo.
+- **Puente async-sync**: la VM es síncrona; el `AgentProvider` es async. `tokio_handle.block_on()` tiende el puente, manteniendo simple la implementación de la VM.
+- **Agrupación de observaciones**: los eventos se acumulan en `observation_buffer` y se drenan después de cada deliberación, proporcionando al LLM contexto acumulativo.
 - **Memoria episódica**: `reasoning_trace: Vec<ReasoningEpisode>` registra cada episodio de deliberación, incluido en solicitudes subsiguientes para que el LLM pueda aprender de la historia reciente.
-- **Fail-open**: Si el provider falla (error de red, timeout), el runtime retorna `Continue` en lugar de crashear. La capa cognitiva nunca hace al programa *menos* confiable.
+- **Fail-open**: si el provider falla (error de red, timeout), el runtime retorna `Continue` en lugar de crashear. La capa cognitiva nunca hace al programa *menos* confiable.
 
-### 3.7 El Runner de Ejecución Cognitiva
+### 3.7 El runner de ejecución cognitiva
 
 La función `run_cognitive()` orquesta el ciclo de reintentos:
 
@@ -366,6 +491,27 @@ pub fn run_cognitive(
     cognitive: Box<dyn CognitiveRuntime>,
     max_retries: usize,
 ) -> Result<CognitiveRunResult, RuntimeError>
+```
+
+```mermaid
+graph TD
+    START[Código fuente] --> PARSE[Parsear fuente actual]
+    PARSE --> CREATE[Crear VM con CognitiveRuntime]
+    CREATE --> RUN[Ejecutar programa]
+
+    RUN --> CHECK{¿Hay pending_fixes?}
+    CHECK -->|Sí| VAL[Validar fix vía validate_fix]
+    VAL --> APPLY[Aplicar fix al fuente]
+    APPLY --> RETRY{¿Quedan reintentos?}
+    RETRY -->|Sí| PARSE
+    RETRY -->|No| ERR[Retornar error]
+
+    CHECK -->|No| RESULT{¿Resultado OK?}
+    RESULT -->|Sí| OK[Retornar CognitiveRunResult<br/>valor + fixes aplicados + reintentos]
+    RESULT -->|No| RETRY
+
+    style OK fill:#d4edda
+    style ERR fill:#f8d7da
 ```
 
 Para cada intento:
@@ -380,9 +526,9 @@ Crucialmente, las decisiones `Backtrack` se manejan *dentro* de una sola ejecuci
 
 ---
 
-## 4. Posicionamiento Frente al Estado del Arte
+## 4. Posicionamiento frente al estado del arte
 
-### 4.1 Comparación Integral
+### 4.1 Comparación integral
 
 *Tabla 3: AURA posicionado contra sistemas representativos de cada línea de investigación*
 
@@ -399,9 +545,33 @@ Crucialmente, las decisiones `Backtrack` se manejan *dentro* de una sola ejecuci
 | **Intención del desarrollador** | Casos de test | Casos de test | Código Python | Restricciones arq. | Goals BDI | **`goal`, `expect`, `invariant`** |
 | **Integración LLM** | Ninguna | API externa | API externa | Ninguna | Ninguna | **Trait de runtime de primera clase** |
 
-### 4.2 La Brecha Tripartita
+### 4.2 La brecha tripartita
 
 AURA cierra una brecha en la intersección de tres preocupaciones previamente separadas:
+
+```mermaid
+graph TD
+    subgraph " "
+        A["Programación orientada<br/>a agentes (BDI)"]
+        B["Reparación automática<br/>de programas (APR)"]
+        C["Sistemas<br/>auto-adaptativos (MAPE-K)"]
+
+        A ---|"goals + intenciones<br/>pero sin LLM"| AB[ ]
+        B ---|"reparación con LLM<br/>pero post-mortem"| BC[ ]
+        C ---|"monitoreo en runtime<br/>pero capa externa"| CA[ ]
+
+        AB --- AURA
+        BC --- AURA
+        CA --- AURA
+
+        AURA["🔷 AURA v2.0<br/>Goals evaluados continuamente<br/>+ LLM con estado en vivo<br/>+ invariantes a nivel de lenguaje"]
+    end
+
+    style AURA fill:#4a90d9,color:#fff
+    style AB fill:none,stroke:none
+    style BC fill:none,stroke:none
+    style CA fill:none,stroke:none
+```
 
 1. **Ningún lenguaje actual** proporciona construcciones integradas para expresar la intención del desarrollador (`goal`), expectativas de runtime (`expect`), monitoreo de variables (`observe`), puntos seguros de rollback (checkpoints), y solicitudes explícitas de razonamiento (`reason`) como sintaxis de primera clase.
 
@@ -409,11 +579,11 @@ AURA cierra una brecha en la intersección de tres preocupaciones previamente se
 
 3. **Ningún sistema actual** impone invariantes de seguridad sobre las adaptaciones generadas por LLM a nivel del lenguaje---donde los invariantes se declaran en la sintaxis del programa, se validan por el parser, y se aplican antes de que cualquier fix propuesto por el LLM sea aplicado.
 
-### 4.3 Afirmación Formal de Novedad
+### 4.3 Afirmación formal de novedad
 
 > AURA incorpora un ciclo cognitivo (observar-razonar-ajustar-continuar) como un mecanismo de runtime de primera clase dentro de la semántica de ejecución del lenguaje, donde (1) la fase "razonar" invoca un modelo de lenguaje grande externo con contexto de ejecución reificado, (2) la fase "ajustar" aplica modificaciones verificadas en tipo al código en ejecución, y (3) el ciclo opera a granularidad arbitraria---desde expresiones individuales hasta cuerpos de funciones completos---en lugar de solo en fronteras de proceso (Erlang), fronteras de transacción (STM), o puntos de unión predefinidos (AOP).
 
-### 4.4 Lo Que No Es Novedoso
+### 4.4 Lo que no es novedoso
 
 La honestidad académica requiere identificar sobre qué construye AURA en lugar de inventar:
 
@@ -430,12 +600,12 @@ La contribución de AURA es la *síntesis*: integrar todo lo anterior en un meca
 
 ---
 
-## 5. Ejemplo Desarrollado
+## 5. Ejemplo desarrollado
 
 El siguiente programa AURA demuestra la ejecución cognitiva. Los comentarios anotan lo que el runtime cognitivo hace en cada punto.
 
 ```aura
-# Demo del Runtime Cognitivo
+# Demo del runtime cognitivo
 # Ejecutar con: aura run --cognitive --provider mock examples/cognitive_demo.aura
 
 +http +json
@@ -460,45 +630,44 @@ format_user(user) = "User {user.id}: {user.name} <{user.email}>"
 main = : users = fetch_users(); observe users; expect len(users) > 0 "should have users"; strategy = reason "we have users, should we process all or filter?"; first_user = first(users); format_user(first_user)
 ```
 
-### 5.1 Traza de Ejecución Bajo Runtime Cognitivo
+### 5.1 Traza de ejecución bajo runtime cognitivo
 
 Al ejecutarse con `aura run --cognitive --provider claude examples/cognitive_demo.aura`:
 
+```mermaid
+sequenceDiagram
+    participant P as Parser
+    participant VM as VM
+    participant CP as Checkpoints
+    participant CR as CognitiveRuntime
+    participant LLM as LLM
+
+    P->>VM: cargar programa (goals, funciones, main)
+    Note over VM: Goals registrados, CheckpointManager inicializado
+
+    VM->>VM: eval: users = fetch_users()
+    Note over VM: users = List[3 registros User]
+
+    VM->>CP: save("observe_users", vars, step=3)
+    VM->>CR: observe(ValueChanged{users: Nil → List[...]})
+    VM->>CR: check_goals()
+    Note over CR: "users != nil" → true ✓
+
+    VM->>VM: eval: expect len(users) > 0
+    Note over VM: condición: true ✓
+    VM->>CR: observe(ExpectEvaluated{result: true})
+
+    VM->>CR: deliberate(ExplicitReason{question: "..."})
+    CR->>LLM: pregunta + goals + observaciones
+    LLM-->>CR: Override("process_all")
+    CR-->>VM: strategy = "process_all"
+
+    VM->>VM: eval: first_user = first(users)
+    VM->>VM: eval: format_user(first_user)
+    Note over VM: "User 1: Alice <alice@example.com>"
 ```
-Paso 1: La VM carga el programa. Goals registrados. CheckpointManager inicializado.
 
-Paso 2: La VM evalúa `users = fetch_users()`.
-        -> Valor: Lista de 3 registros User
-
-Paso 3: La VM evalúa `observe users`.
-        -> checkpoint_manager.save("users_observed", current_vars, step=3)
-        -> cognitive.observe(ValueChanged { name: "users", old: Nil, new: List[...] })
-        -> cognitive.check_goals():
-           - "users != nil" evalúa a true -> sin desalineación
-
-Paso 4: La VM evalúa `expect len(users) > 0 "should have users"`.
-        -> Condición: true
-        -> cognitive.observe(ExpectEvaluated { condition: "len(users) > 0", result: true })
-
-Paso 5: La VM evalúa `reason "we have users, should we process all or filter?"`.
-        -> cognitive.deliberate(ExplicitReason {
-             observations: ["users changed: Nil -> List[...]"],
-             question: "we have users, should we process all or filter?"
-           })
-        -> El LLM recibe: pregunta + goals + invariantes + checkpoints + observaciones recientes
-        -> El LLM responde: Override(String("process_all"))
-        -> strategy = "process_all"
-
-Paso 6: La VM evalúa `first_user = first(users)`.
-        -> Valor: Registro User de Alice
-
-Paso 7: La VM evalúa `format_user(first_user)`.
-        -> Valor: "User 1: Alice <alice@example.com>"
-
-Paso 8: La VM retorna el resultado.
-```
-
-### 5.2 Contrafactual: Escenario de Desalineación de Goal
+### 5.2 Contrafactual: escenario de desalineación de goal
 
 Supongamos que `fetch_users()` retornó una lista incluyendo un usuario con `name: nil`. El goal `check users != nil` aún pasaría (la lista misma no es nil), pero imaginemos un goal más preciso:
 
@@ -508,21 +677,25 @@ goal "all names must be non-empty" check for(u in users) : u.name != nil
 
 Cuando la verificación del goal falla:
 
-```
-Paso 3b: cognitive.check_goals():
-         - "for(u in users) : u.name != nil" evalúa a false
-         -> DeliberationTrigger::GoalMisalignment {
-              goal_description: "all names must be non-empty",
-              check_result: Bool(false)
-            }
-         -> El LLM delibera...
-         -> CognitiveDecision::Backtrack {
-              checkpoint: "users_observed",
-              adjustments: [("users", lista_filtrada_sin_names_nil)]
-            }
-         -> La VM restaura al checkpoint "users_observed"
-         -> La VM aplica el ajuste: users = [solo usuarios con nombres válidos]
-         -> La ejecución continúa desde el paso 3 con datos corregidos
+```mermaid
+sequenceDiagram
+    participant VM as VM
+    participant CP as Checkpoints
+    participant CR as CognitiveRuntime
+    participant LLM as LLM
+
+    VM->>CP: save("observe_users", vars, step=3)
+    VM->>CR: check_goals()
+    Note over CR: "for(u in users): u.name != nil" → false ✗
+
+    CR->>LLM: GoalMisalignment + contexto + checkpoints
+    LLM-->>CR: Backtrack{checkpoint: "observe_users",<br/>adjustments: [("users", lista_filtrada)]}
+
+    CR-->>VM: Backtrack{...}
+    VM->>CP: restore("observe_users")
+    Note over VM: variables restauradas al paso 3
+    VM->>VM: aplica ajuste: users = [solo válidos]
+    VM->>VM: continúa ejecución con datos corregidos ✓
 ```
 
 Este es el poder del backtracking basado en checkpoints con ajustes informados por LLM: el programa no crashea, no reinicia desde cero, y no aplica una estrategia predefinida frágil. El LLM entiende el goal ("all names must be non-empty"), examina los datos, y propone una corrección dirigida.
@@ -531,27 +704,42 @@ Este es el poder del backtracking basado en checkpoints con ajustes informados p
 
 ## 6. Discusión
 
-### 6.1 Enmarcamiento Teórico
+### 6.1 Enmarcamiento teórico
 
 El runtime cognitivo de AURA puede formalizarse a través de múltiples lentes teóricos:
 
-**Como un handler de efectos algebraicos** (Plotkin & Pretnar 2009): Las primitivas cognitivas (`observe`, `reason`, `expect` ante fallo) son efectos cedidos por la computación. El `CognitiveRuntime` es el handler que interpreta estos efectos. La novedad clave: el handler no es una función definida estáticamente sino un LLM que razona dinámicamente.
+**Como un handler de efectos algebraicos** (Plotkin & Pretnar 2009): las primitivas cognitivas (`observe`, `reason`, `expect` ante fallo) son efectos cedidos por la computación. El `CognitiveRuntime` es el handler que interpreta estos efectos. La novedad clave: el handler no es una función definida estáticamente sino un LLM que razona dinámicamente.
 
 **Como una instancia MAPE-K** (Kephart & Chess 2003): `observe` = Monitorear, clasificación de `DeliberationTrigger` = Analizar, deliberación del LLM = Planificar, aplicación de `CognitiveDecision` = Ejecutar, traza de `ReasoningEpisode` = Conocimiento. La novedad: todas las fases están embebidas en el runtime del lenguaje, no superpuestas externamente.
 
-**Como un sistema generalizado de condiciones/restarts**: Las condiciones de Common Lisp señalan errores; los restarts proporcionan opciones de recuperación. AURA generaliza ambos: cualquier evento de ejecución (no solo errores) puede disparar deliberación, y las opciones de recuperación son generadas dinámicamente por un LLM en lugar de ser predefinidas por el programador.
+```mermaid
+graph LR
+    subgraph "MAPE-K mapeado a AURA"
+        M["Monitor<br/><code>observe()</code>"] --> A["Analyze<br/><code>DeliberationTrigger</code>"]
+        A --> P["Plan<br/>LLM delibera"]
+        P --> E["Execute<br/><code>CognitiveDecision</code>"]
+        E -.-> M
+        K["Knowledge<br/><code>ReasoningEpisode</code><br/><code>HealingMemory</code>"]
+        K <-.-> M
+        K <-.-> A
+        K <-.-> P
+        K <-.-> E
+    end
+```
 
-### 6.2 El Runtime como Arquitectura Cognitiva
+**Como un sistema generalizado de condiciones/restarts**: las condiciones de Common Lisp señalan errores; los restarts proporcionan opciones de recuperación. AURA generaliza ambos: cualquier evento de ejecución (no solo errores) puede disparar deliberación, y las opciones de recuperación son generadas dinámicamente por un LLM en lugar de ser predefinidas por el programador.
+
+### 6.2 El runtime como arquitectura cognitiva
 
 Al mapearse a la teoría de arquitecturas cognitivas, el runtime de AURA implementa los componentes esenciales identificados por Newell (1990) y arquitecturas subsiguientes:
 
-- **Percepción**: Detección de eventos vía `observe()`
-- **Memoria de trabajo**: Buffer de observaciones + contexto de ejecución
+- **Percepción**: detección de eventos vía `observe()`
+- **Memoria de trabajo**: buffer de observaciones + contexto de ejecución
 - **Memoria a largo plazo**: `HealingMemory` con persistencia de `ReasoningEpisode`
-- **Deliberación**: Invocación del LLM con contexto estructurado
-- **Selección de acción**: Enum `CognitiveDecision`
-- **Aprendizaje**: El historial de episodios informa deliberaciones subsiguientes
-- **Metacognición**: Límites de `CognitiveSafetyConfig` sobre el comportamiento de razonamiento
+- **Deliberación**: invocación del LLM con contexto estructurado
+- **Selección de acción**: enum `CognitiveDecision`
+- **Aprendizaje**: el historial de episodios informa deliberaciones subsiguientes
+- **Metacognición**: límites de `CognitiveSafetyConfig` sobre el comportamiento de razonamiento
 
 Esto convierte a AURA, hasta donde sabemos, en **el primer runtime de lenguaje de programación que es en sí mismo una arquitectura cognitiva**---en lugar de un lenguaje usado para implementar una.
 
@@ -565,13 +753,13 @@ Esto convierte a AURA, hasta donde sabemos, en **el primer runtime de lenguaje d
 
 **Costo.** Cada deliberación incurre en costos de API del LLM. Los límites `max_deliberations` y `max_deliberations_without_progress` acotan esto, pero las estrategias de deliberación conscientes del costo son trabajo futuro.
 
-### 6.4 Direcciones Futuras
+### 6.4 Direcciones futuras
 
-- **Semántica formal**: Definir el ciclo cognitivo de AURA en un framework de semántica operacional, construyendo sobre la literatura de efectos algebraicos.
-- **Runtime cognitivo multi-agente**: Múltiples LLMs con diferentes especializaciones (ej., uno para reparación de código, otro para razonamiento arquitectónico).
-- **Adaptación verificada**: Usar métodos formales para demostrar que las adaptaciones dentro del espacio acotado por invariantes preservan propiedades especificadas.
-- **Deliberación consciente del costo**: Estrategias que balanceen el costo de llamadas al LLM contra el beneficio esperado.
-- **Cognición colaborativa**: Modos humano-en-el-ciclo donde el runtime presenta opciones en lugar de actuar autónomamente.
+- **Semántica formal**: definir el ciclo cognitivo de AURA en un framework de semántica operacional, construyendo sobre la literatura de efectos algebraicos.
+- **Runtime cognitivo multi-agente**: múltiples LLMs con diferentes especializaciones (ej., uno para reparación de código, otro para razonamiento arquitectónico).
+- **Adaptación verificada**: usar métodos formales para demostrar que las adaptaciones dentro del espacio acotado por invariantes preservan propiedades especificadas.
+- **Deliberación consciente del costo**: estrategias que balanceen el costo de llamadas al LLM contra el beneficio esperado.
+- **Cognición colaborativa**: modos humano-en-el-ciclo donde el runtime presenta opciones en lugar de actuar autónomamente.
 
 ---
 
@@ -589,7 +777,7 @@ Si este paradigma escala a sistemas de producción, cómo pueden establecerse ga
 
 ## Referencias
 
-### Lenguajes de Programación Orientados a Agentes
+### Lenguajes de programación orientados a agentes
 
 [1] Shoham, Y. (1993). "Agent-Oriented Programming." *Artificial Intelligence*, 60(1):51-92.
 
@@ -617,7 +805,7 @@ Si este paradigma escala a sistemas de producción, cómo pueden establecerse ga
 
 [12] Cohen, P.R. & Levesque, H.J. (1990). "Intention is Choice with Commitment." *Artificial Intelligence*, 42(2-3):213-261.
 
-### Reparación Automática de Programas
+### Reparación automática de programas
 
 [13] Le Goues, C., Nguyen, T.V., Forrest, S., & Weimer, W. (2012). "GenProg: A Generic Method for Automatic Software Repair." *IEEE TSE*, 38(1):54-72.
 
@@ -633,7 +821,7 @@ Si este paradigma escala a sistemas de producción, cómo pueden establecerse ga
 
 [19] Monperrus, M. (2018). "Automatic Software Repair: A Bibliography." *ACM Computing Surveys*, 51(1):1-24.
 
-### Sistemas Auto-Adaptativos
+### Sistemas auto-adaptativos
 
 [20] Kephart, J.O. & Chess, D.M. (2003). "The Vision of Autonomic Computing." *IEEE Computer*, 36(1):41-50.
 
@@ -643,7 +831,7 @@ Si este paradigma escala a sistemas de producción, cómo pueden establecerse ga
 
 [23] Weyns, D. (2020). *An Introduction to Self-Adaptive Systems: A Contemporary Software Engineering Perspective*. Wiley/IEEE Press.
 
-### Arquitecturas Cognitivas
+### Arquitecturas cognitivas
 
 [24] Laird, J.E., Newell, A., & Rosenbloom, P.S. (1987). "SOAR: An Architecture for General Intelligence." *Artificial Intelligence*, 33(1):1-64.
 
@@ -657,7 +845,7 @@ Si este paradigma escala a sistemas de producción, cómo pueden establecerse ga
 
 [29] Franklin, S. et al. (2014). "LIDA: A Systems-level Architecture for Cognition, Emotion, and Learning." *IEEE Trans. on Autonomous Mental Development*, 6(1):19-41.
 
-### Reflexión, Efectos y Meta-Programación
+### Reflexión, efectos y meta-programación
 
 [30] Smith, B.C. (1984). "Reflection and Semantics in Lisp." *POPL '84*, ACM, 23-35.
 
@@ -669,7 +857,7 @@ Si este paradigma escala a sistemas de producción, cómo pueden establecerse ga
 
 [34] Bauer, A. & Pretnar, M. (2015). "Programming with Algebraic Effects and Handlers." *Journal of Logical and Algebraic Methods in Programming*, 84(1):108-123.
 
-### Checkpoint, Rollback y Tolerancia a Fallos
+### Checkpoint, rollback y tolerancia a fallos
 
 [35] Shavit, N. & Touitou, D. (1995). "Software Transactional Memory." *PODC '95*, ACM, 204-213.
 
@@ -681,7 +869,7 @@ Si este paradigma escala a sistemas de producción, cómo pueden establecerse ga
 
 [39] Perkins, J.H. et al. (2009). "Automatically Patching Errors in Deployed Software." *SOSP 2009*, ACM, 87-102.
 
-### Programación Integrada con LLM
+### Programación integrada con LLM
 
 [40] Beurer-Kellner, L., Fischer, M., & Vechev, M. (2023). "Prompting Is Programming: A Query Language for Large Language Models." *PLDI 2023*, ACM, 1507-1532.
 
@@ -693,7 +881,7 @@ Si este paradigma escala a sistemas de producción, cómo pueden establecerse ga
 
 [44] Shinn, N. et al. (2023). "Reflexion: Language Agents with Verbal Reinforcement Learning." *NeurIPS 2023*.
 
-### Programación Orientada a Objetivos y Planificación
+### Programación orientada a objetivos y planificación
 
 [45] Fikes, R.E. & Nilsson, N.J. (1971). "STRIPS: A New Approach to the Application of Theorem Proving to Problem Solving." *Artificial Intelligence*, 2(3-4):189-208.
 
@@ -701,7 +889,7 @@ Si este paradigma escala a sistemas de producción, cómo pueden establecerse ga
 
 [47] Nau, D. et al. (2003). "SHOP2: An HTN Planning System." *JAIR*, 20:379-404.
 
-### Verificación en Runtime y Diseño por Contrato
+### Verificación en runtime y diseño por contrato
 
 [48] Meyer, B. (1992). "Applying 'Design by Contract'." *IEEE Computer*, 25(10):40-51.
 
@@ -709,7 +897,7 @@ Si este paradigma escala a sistemas de producción, cómo pueden establecerse ga
 
 [50] Ernst, M.D. et al. (2007). "The Daikon System for Dynamic Detection of Likely Invariants." *Science of Computer Programming*, 69(1-3):35-45.
 
-### Surveys y Trabajo Fundacional
+### Surveys y trabajo fundacional
 
 [51] Wooldridge, M. & Jennings, N.R. (1995). "Intelligent Agents: Theory and Practice." *Knowledge Engineering Review*, 10(2):115-152.
 
