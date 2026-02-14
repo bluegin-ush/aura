@@ -1,0 +1,27 @@
+# Demo Cognitivo 2 - Validador de datos con umbral minimo
+#
+# Demuestra reparacion cognitiva con patron de nombre "min".
+# El MockProvider reconoce que min_puntaje implica un valor minimo
+# y reemplaza la referencia con 0.
+#
+# Sin cognitive (crash):
+#   aura run examples/cognitive_func.aura
+#   -> Error: "Variable no definida: min_puntaje"
+#
+# Con cognitive (auto-reparacion):
+#   aura run --cognitive --provider mock examples/cognitive_func.aura
+
++http +json
+
+goal "validar calidad de datos"
+goal "todos los registros procesados" check datos != nil
+
+invariant len(datos) >= 0
+
+obtener_datos() = [{nombre: "Ana", valor: 85}, {nombre: "Luis", valor: 42}, {nombre: "Maria", valor: 97}]
+
+# Bug intencional: min_puntaje NO esta definido
+# El runtime cognitivo detecta el patron "min" y lo reemplaza con 0
+es_valido(valor) = valor > min_puntaje
+
+main = : datos = obtener_datos(); observe datos; expect len(datos) > 0 "sin datos de entrada"; d1 = first(datos); d2 = first(tail(datos)); v1 = es_valido(d1.valor); v2 = es_valido(d2.valor); print("Validacion {d1.nombre}: {v1}"); print("Validacion {d2.nombre}: {v2}"); expect v1 "dato de {d1.nombre} invalido"; accion = reason "datos validados, como proceder?"; print("Procesamiento completo"); d1.valor

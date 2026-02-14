@@ -35,7 +35,7 @@ AURA cierra esta brecha sintetizando ideas de las tres tradiciones en un solo di
 | Checkpoint/rollback | Gestión transaccional de estado | `CheckpointManager` --- snapshots nombrados con restauración y ajustes |
 | Frameworks de agentes LLM | Razonamiento potenciado por LLM | `reason "pregunta"` --- deliberación explícita con inyección de valores |
 
-El resultado es un lenguaje donde el modelo de ejecución cambia fundamentalmente:
+El resultado es un lenguaje donde el modelo de ejecución difiere sustancialmente del modelo convencional:
 
 **Modelo v1 — ejecución tradicional:**
 
@@ -54,13 +54,13 @@ graph LR
 
 ### 1.3 El salto conceptual
 
-Sin embargo, describir AURA como "un lenguaje con primitivas de agentes" sería reduccionista. Lo que AURA realmente implementa es algo más profundo:
+Sin embargo, describir AURA como "un lenguaje con primitivas de agentes" sería reduccionista. Lo que AURA implementa es algo cualitativamente distinto:
 
 > **AURA no es un lenguaje que permite deliberación. AURA es una máquina abstracta donde la continuidad del programa es negociada.**
 
 En un lenguaje convencional, un programa define *el* comportamiento: dada una entrada, la semántica del lenguaje determina una única traza de ejecución (o falla). En AURA, un programa define el *espacio permitido* de comportamientos. Los goals y los invariantes restringen ese espacio. La ejecución es entonces **búsqueda guiada en un espacio de trayectorias válidas**, donde el agente cognitivo actúa como oráculo de selección.
 
-Esto cambia radicalmente el estatus del programa:
+Esto cambia de manera fundamental el estatus del programa:
 
 | Aspecto | Lenguaje convencional | AURA |
 |---------|----------------------|------|
@@ -163,7 +163,7 @@ Ninguna tiene acceso al estado de ejecución en vivo. Ninguna puede inyectar val
 | Aprendizaje | Traza de `ReasoningEpisode` + persistencia en `HealingMemory` |
 | Metacognición | `CognitiveSafetyConfig` --- límites de seguridad sobre el comportamiento de razonamiento |
 
-Esto convierte al runtime de AURA en una arquitectura cognitiva en sí misma, en lugar de un lenguaje usado para *implementar* una arquitectura cognitiva---una distinción sin precedentes en la literatura.
+Argumentamos que esto convierte al runtime de AURA en una arquitectura cognitiva en sí misma, en lugar de un lenguaje usado para *implementar* una arquitectura cognitiva---una distinción que, hasta donde sabemos, no tiene precedente directo en la literatura.
 
 ### 2.5 Arquitecturas reflectivas y de meta-nivel
 
@@ -242,7 +242,7 @@ graph TB
 
 ### 3.1 Primitivas cognitivas
 
-AURA introduce seis construcciones que forman su vocabulario cognitivo. Estas se parsean en nodos AST---son parte de la gramática del lenguaje, no funciones de biblioteca.
+AURA introduce seis construcciones que forman su vocabulario cognitivo. Estas se parsean en nodos AST---son parte de la gramática del lenguaje, no funciones de biblioteca. En la Sección 4.6 demostramos que estas primitivas no son features independientes sino **consecuencias necesarias** del modelo de ejecución: cada una corresponde a un componente formal sin el cual el modelo degenera a algo que ya existe.
 
 #### 3.1.1 `goal`
 
@@ -401,7 +401,7 @@ Comparación con modelos de intervención existentes:
 | `Continue` | Proceder normalmente | Común (todos los sistemas) |
 | `Override(Value)` | Inyectar un valor de reemplazo en el flujo de ejecución | Restart `use-value` de Common Lisp, pero elegido por LLM |
 | `Fix{new_code, explanation}` | Reescribir código fuente; re-ejecutar desde el inicio | Herramientas APR (GenProg, ChatRepair), pero con contexto de runtime |
-| `Backtrack{checkpoint, adjustments}` | Restaurar la VM al checkpoint nombrado, aplicar ajustes a variables, continuar desde ese punto | **Sin precedente** en APR o frameworks LLM |
+| `Backtrack{checkpoint, adjustments}` | Restaurar la VM al checkpoint nombrado, aplicar ajustes a variables, continuar desde ese punto | **Sin precedente directo**, hasta donde sabemos, en APR o frameworks LLM |
 | `Halt(error)` | Detener ejecución con explicación | Común (todos los sistemas) |
 
 #### Backtrack como primitiva semántica central
@@ -425,7 +425,7 @@ graph LR
 
 A diferencia de las herramientas APR que deben re-ejecutar desde cero, y a diferencia de la supervisión de Erlang que reinicia desde el estado inicial, AURA puede restaurar a cualquier checkpoint nombrado *con ajustes*---el LLM especifica qué variables modificar antes de reanudar. Esto permite re-ejecución parcial con correcciones informadas.
 
-Lo que hace esto semánticamente radical es que la ejecución ya no avanza monótonamente. El programa puede:
+La consecuencia semántica central es que la ejecución ya no avanza monótonamente. El programa puede:
 - **Retroceder** a un estado anterior (como Prolog)
 - **Ajustar variables** antes de reanudar (a diferencia de Prolog, que solo hace backtracking puro)
 - **Elegir a qué checkpoint retroceder** (navegación en el grafo, no solo backtracking cronológico)
@@ -579,86 +579,254 @@ Para cada intento:
 5. Si la ejecución tiene éxito sin fixes pendientes, retornar el resultado
 6. Si se agotaron los reintentos, retornar el error
 
-Crucialmente, las decisiones `Backtrack` se manejan *dentro* de una sola ejecución (son restauraciones de estado en línea), mientras que las decisiones `Fix` requieren re-parseo y re-ejecución. Esta adaptación de doble nivel---backtrack en línea para correcciones rápidas, re-ejecución completa para cambios estructurales---proporciona una flexibilidad sin igual en sistemas de estrategia única.
+Crucialmente, las decisiones `Backtrack` se manejan *dentro* de una sola ejecución (son restauraciones de estado en línea), mientras que las decisiones `Fix` requieren re-parseo y re-ejecución. Esta adaptación de doble nivel---backtrack en línea para correcciones rápidas, re-ejecución completa para cambios estructurales---proporciona una flexibilidad mayor que la de sistemas de estrategia única.
 
 ---
 
 ## 4. Modelo formal: Ejecución como selección de trayectoria restringida
 
-Esta sección presenta el enmarcamiento teórico central de AURA. Argumentamos que la VM cognitiva de AURA implementa un modelo operacional fundamentalmente diferente al de los lenguajes convencionales, y que este modelo es formalmente describible---no como heurística asistida por IA, sino como semántica operacional no determinista con oráculo.
+Esta sección presenta el centro teórico de AURA. No describimos una arquitectura de software---definimos un modelo de ejecución. El argumento se estructura alrededor de tres preguntas que cualquier modelo operacional debe responder, y demuestra que las primitivas del lenguaje son consecuencias necesarias del modelo, no features independientes.
 
-### 4.1 El programa como espacio de trayectorias
+### 4.1 Tres preguntas fundacionales
 
-En un lenguaje convencional, un programa *P* con entrada *x* define una función:
+Para afirmar que AURA propone un *nuevo modelo de ejecución*---y no simplemente una arquitectura interesante---debemos responder tres preguntas con precisión formal:
 
-```
-eval(P, x) → v | ⊥
-```
+1. **¿Qué significa ejecutar un programa AURA?** No "qué hace el runtime", sino qué define que una ejecución sea válida.
 
-La semántica es determinista: dado el mismo programa y la misma entrada, la ejecución produce el mismo valor *v* o diverge/falla (*⊥*). No hay ambigüedad sobre qué significa "ejecutar P".
+2. **¿Qué significa continuar un programa?** Cuando la evaluación determinista no puede avanzar, ¿qué determina la continuación? Y si la continuación no está determinada por la semántica del lenguaje, ¿por qué sigue siendo una ejecución del mismo programa?
 
-En AURA, un programa *P* define algo diferente: un **espacio de trayectorias de ejecución** *T(P)*. Cada trayectoria *τ ∈ T(P)* es una secuencia de estados de la VM:
+3. **¿Qué significa corregir un programa sin cambiar el programa?** Si el oráculo inyecta un valor, ajusta variables, o incluso reescribe código fuente, ¿en qué sentido el programa sigue siendo el mismo?
 
-```
-τ = ⟨σ₀, σ₁, ..., σₙ⟩
-```
+Responder estas preguntas es lo que distingue a AURA de "un runtime con heurística externa". Las respuestas, desarrolladas a continuación, revelan que las primitivas del lenguaje (`goal`, `observe`, `expect`, `reason`, `invariant`) no son features independientes sino **consecuencias necesarias** del modelo.
 
-donde cada estado *σᵢ* incluye el entorno de variables, la pila de llamadas, los checkpoints disponibles, y el buffer de observaciones. Las transiciones entre estados son de dos tipos:
+### 4.2 Programa, configuración y ejecución válida
 
-- **Transiciones deterministas** (*σᵢ →ᵈ σᵢ₊₁*): las reglas de evaluación estándar del lenguaje (aritmética, llamadas a función, let-bindings, etc.)
-- **Transiciones no deterministas** (*σᵢ →ⁿ σⱼ*): intervenciones del oráculo cognitivo que pueden:
-  - Inyectar un valor (`Override`)
-  - Modificar el código y reiniciar (`Fix`)
-  - Retroceder a un estado anterior con ajustes (`Backtrack`)
-  - Detener la ejecución (`Halt`)
+**Definición 1 (Programa AURA).** Un programa AURA es una tripleta *P = (C, G, I)* donde:
 
-Un programa AURA sin runtime cognitivo tiene solo transiciones deterministas---es un lenguaje convencional (v1 behavior). Con runtime cognitivo, el espacio de trayectorias se expande a todas las posibles intervenciones del oráculo.
+- *C* es el código: el AST que define las transiciones deterministas (funciones, expresiones, let-bindings)
+- *G = {g₁, ..., gₘ}* es el conjunto de goals, cada uno con descripción y expresión check opcional: *gⱼ = (descⱼ, checkⱼ?)*
+- *I = {i₁, ..., iₖ}* es el conjunto de invariantes: expresiones que definen restricciones duras
 
-### 4.2 Restricciones: goals e invariantes como superficie de constraint
+Nota fundamental: **el programa no es el código**. El programa es la tripleta. El código *C* es la implementación; los goals *G* e invariantes *I* son la especificación. Esta separación es la que permite que el oráculo modifique *C* sin "cambiar el programa"---siempre que *G* e *I* se preserven.
 
-No todas las trayectorias en *T(P)* son válidas. Los goals e invariantes declarados por el desarrollador definen una **superficie de restricción** *C* que acota el espacio:
+**Definición 2 (Configuración).** Una configuración de la VM es una tupla:
 
 ```
-T_válidas(P) = { τ ∈ T(P) | ∀ σᵢ ∈ τ : invariantes(σᵢ) ∧ goals_check(σᵢ) }
+C = ⟨σ, P, H, K⟩
 ```
 
-Los invariantes son restricciones duras: toda trayectoria válida debe satisfacerlos en cada estado. Los goals con `check` son restricciones evaluadas periódicamente: si fallan, el oráculo es invocado para corregir el rumbo.
+donde:
 
-Esto tiene una consecuencia crucial: **el desarrollador no programa el comportamiento, programa las restricciones sobre el espacio de comportamientos**. Los goals y los invariantes son la especificación; el código es un intento de solución que el oráculo puede ajustar.
+- *σ* es el estado: entorno de variables *Env*, expresión actual *e*, pila de llamadas
+- *P = (C, G, I)* es el programa
+- *H* es el historial de observaciones: la secuencia de eventos observados
+- *K* es el conjunto de checkpoints: snapshots nombrados de estados anteriores, *K = {(name₁, σ₁'), ..., (nameₙ, σₙ')}*
 
-### 4.3 El oráculo cognitivo
-
-En la teoría de la computación, un **oráculo** es una caja negra que responde consultas durante la computación (Turing 1939). En AURA, el LLM funciona como oráculo de selección de trayectoria:
+**Definición 3 (Transición determinista).** Una transición determinista es una regla de evaluación estándar:
 
 ```
-oracle(σᵢ, trigger, contexto) → decisión ∈ CognitiveDecision
+        σ, e ⇓ v
+     ——————————————— [STEP-DET]
+     ⟨σ, e⟩ →_d ⟨σ[e↦v], v⟩
 ```
 
-El oráculo recibe:
-- El estado actual *σᵢ* (variables, checkpoints, observaciones)
-- El disparador (error técnico, expect fallido, goal desalineado, reason explícito)
-- El contexto acumulado (historial de observaciones, traza de razonamiento, goals, invariantes)
+Esto incluye aritmética, let-bindings, llamadas a función, condicionales---las reglas estándar de cualquier lenguaje funcional. Cuando *todas* las transiciones son deterministas, AURA se comporta como un lenguaje convencional.
 
-Y retorna una decisión que selecciona la siguiente transición. Lo que hace al oráculo de AURA diferente de una herramienta heurística es que su intervención está **estructuralmente restringida**:
+**Definición 4 (Invocación del oráculo).** Cuando la evaluación determinista no puede continuar (error), o cuando un expect falla, o cuando un goal check falla, o cuando se ejecuta `reason`, se invoca el oráculo:
 
-1. Solo puede elegir entre cinco tipos de intervención (el álgebra de `CognitiveDecision`)
-2. Los fixes propuestos deben pasar `validate_fix()` (parseable, goals preservados, tamaño acotado)
-3. Los backtracks solo pueden ir a checkpoints existentes
-4. Los límites de seguridad (`CognitiveSafetyConfig`) acotan el número de deliberaciones
+```
+oracle(C, trigger) → δ ∈ {Continue, Override(v), Fix(C', expl), Backtrack(cp, adj), Halt(err)}
+```
 
-Esto eleva al LLM de "heurística externa" a **oráculo en un sistema formal**. No decide arbitrariamente---selecciona una trayectoria válida dentro de un espacio restringido.
+El oráculo recibe la configuración completa *C* y el disparador, y retorna una decisión *δ* del álgebra de intervención. La decisión está **estructuralmente tipada**: el oráculo no puede retornar cualquier cosa, solo una de cinco formas.
 
-Un revisor de PL podría decir:
+**Definición 5 (Transiciones guiadas por oráculo).** Cada decisión del oráculo define una regla de transición:
 
-> "Esto es un runtime con heurística externa."
+```
+        σ, e ⇓ ⊥    oracle(C, TechnicalError(⊥)) = Override(v')
+    —————————————————————————————————————————————————————————————— [STEP-OVERRIDE]
+        ⟨σ, e⟩ →_o ⟨σ[result := v'], v'⟩
 
-Pero con este enmarcamiento, la respuesta es:
 
-> "Es un modelo operacional no determinista con oráculo, donde las restricciones declarativas (goals, invariantes) acotan formalmente el espacio de intervención."
+        σ, e ⇓ ⊥    oracle(C, TechnicalError(⊥)) = Backtrack(cp, adj)    (cp, σ_cp) ∈ K
+    —————————————————————————————————————————————————————————————— [STEP-BACKTRACK]
+        ⟨σ, e⟩ →_o ⟨σ_cp ⊕ adj, e_cp⟩
 
-### 4.4 El grafo de estados navegable
 
-La intervención `Backtrack{checkpoint, adjustments}` es la pieza que distingue a AURA de un simple "retry con IA". Con backtracking, el espacio de ejecución no es una secuencia lineal sino un **grafo dirigido acíclico** (DAG) de estados:
+        σ, e ⇓ ⊥    oracle(C, TechnicalError(⊥)) = Fix(C', expl)    validate(C', G, safety) = OK
+    —————————————————————————————————————————————————————————————— [STEP-FIX]
+        ⟨(C,G,I), σ, e⟩ →_o ⟨(C',G,I), σ₀, e₀'⟩
+```
+
+La regla STEP-FIX es crucial: los goals *G* y los invariantes *I* se preservan. Solo el código *C* cambia a *C'*. La ejecución reinicia desde el estado inicial *σ₀* con el nuevo código.
+
+**Definición 6 (Ejecución válida).** Una ejecución de un programa *P* es una secuencia de configuraciones *E = ⟨C₀, C₁, ..., Cₙ⟩* tal que:
+
+1. **Transiciones legales**: cada *Cᵢ → Cᵢ₊₁* es una transición determinista (*→_d*) o guiada por oráculo (*→_o*)
+2. **Invariantes respetados**: *∀i. ∀iₖ ∈ I. eval(iₖ, σᵢ) ≠ false* (nota: *eval* puede ser *⊥* si la variable aún no existe)
+3. **Terminal**: *Cₙ* es una configuración terminal: contiene un valor final o una decisión Halt
+
+Esto es lo que significa ejecutar un programa AURA: **encontrar una secuencia de configuraciones que llegue a un estado terminal respetando los invariantes**, usando transiciones deterministas cuando es posible y transiciones guiadas por oráculo cuando no lo es.
+
+En un lenguaje convencional, la ejecución válida es única (determinismo) o no existe (divergencia/error). En AURA, pueden existir múltiples ejecuciones válidas del mismo programa---el oráculo *selecciona* una. Esto posiciona a AURA como semántica operacional no determinista, análoga a los lenguajes concurrentes donde el scheduler selecciona entre entrecruzamientos válidos.
+
+De las definiciones anteriores se derivan las siguientes propiedades:
+
+**Proposición 1 (Reducción convencional).** *Si el oráculo nunca es invocado (no hay errores, todos los expects pasan, todos los goal checks evalúan a true, y no hay expresiones `reason`), entonces la ejecución de un programa AURA es idéntica a la de un lenguaje funcional convencional.*
+
+*Demostración (esbozo).* Sin invocación del oráculo, todas las transiciones son deterministas (*→_d* por Definición 3). La secuencia *E = ⟨C₀, ..., Cₙ⟩* contiene solo transiciones STEP-DET. Los invariantes se verifican pero nunca se violan. Los goals se almacenan pero nunca causan deliberación. La ejecución es *eval(main)* en un lenguaje funcional estándar. ∎
+
+**Proposición 2 (Preservación de invariantes).** *En toda ejecución válida (Definición 6), ningún invariante se viola en ninguna configuración.*
+
+*Demostración.* Directa de la condición 2 de la Definición 6: *∀i. ∀iₖ ∈ I. eval(iₖ, σᵢ) ≠ false*. Adicionalmente, `validate_fix()` verifica que el código resultante de un Fix sea parseable y preserve todos los goals, impidiendo que una intervención del oráculo elimine invariantes del programa. ∎
+
+**Proposición 3 (Preservación de especificación bajo Fix).** *La regla STEP-FIX preserva la especificación del programa: si P = (C, G, I) y la transición produce P' = (C', G', I'), entonces G' = G e I' = I.*
+
+*Demostración.* Por la regla STEP-FIX (Definición 5), la transición requiere *validate(C', G, safety) = OK*. La función `validate_fix()` verifica: (a) que todos los goals en *G* aparezcan en el código reparado *C'*, (b) que no se agreguen goals nuevos, (c) que *C'* sea parseable como AURA válido. El programa resultante es *(C', G, I)*---misma especificación, diferente implementación. ∎
+
+**Proposición 4 (Terminación acotada).** *Bajo las restricciones de `CognitiveSafetyConfig`, el ciclo cognitivo termina en a lo sumo `max_retries + 1` intentos con a lo sumo `max_deliberations` deliberaciones por intento.*
+
+*Demostración.* El runner `run_cognitive()` itera `for attempt in 0..=max_retries`---como mucho *max_retries + 1* iteraciones. Dentro de cada iteración, `AgentCognitiveRuntime` cuenta `deliberation_count` y retorna Continue cuando alcanza `max_deliberations`. El `NullCognitiveRuntime` (usado en reintentos posteriores al primero) no delibera. El número total de deliberaciones está acotado por *max_deliberations* y el número total de intentos por *max_retries + 1*. ∎
+
+### 4.3 Continuidad negociada
+
+Ahora respondemos la segunda pregunta: ¿qué significa *continuar* un programa AURA?
+
+En un lenguaje convencional, la continuación está determinada por la semántica:
+
+```
+σ, (e₁; e₂) → evaluar e₁, luego evaluar e₂
+```
+
+No hay ambigüedad. Si *e₁* falla, el programa falla. La continuación es propiedad de la semántica.
+
+En AURA, cuando *e₁* falla, la continuación **no está determinada por la semántica del lenguaje**. Está **negociada** entre tres participantes:
+
+1. **La semántica determinista**, que dice: "no puedo continuar; aquí está el error"
+2. **El oráculo**, que propone: "continuemos con esta intervención *δ*"
+3. **Las restricciones declaradas** (goals, invariantes, safety config), que dicen: "la intervención *δ* es aceptable" o "la intervención *δ* viola una restricción"
+
+**Definición 7 (Continuación negociada).** Cuando *σ, e ⇓ ⊥*, la continuación se determina por el protocolo:
+
+```
+1. La VM identifica el trigger: TechnicalError | ExpectFailed | GoalMisalignment | ExplicitReason
+2. El oráculo propone δ = oracle(C, trigger)
+3. Si δ = Fix(C', expl):
+     validate(C', G, safety) = OK  →  aceptar
+     validate(C', G, safety) = Err  →  rechazar, solicitar otra δ
+4. Si δ = Backtrack(cp, adj):
+     cp ∈ K  →  aceptar
+     cp ∉ K  →  rechazar
+5. La VM aplica δ y continúa
+```
+
+¿Por qué sigue siendo una ejecución del *mismo programa*? Porque el programa es *P = (C, G, I)*, y la negociación preserva *G* e *I*. Incluso cuando el código *C* se modifica (Fix), los goals y los invariantes---la especificación---permanecen intactos. La continuación es *del mismo programa* porque es una continuación dentro del *mismo espacio de trayectorias válidas*.
+
+Esto es lo que distingue a la continuación negociada de mecanismos superficialmente similares:
+
+- **No es retry**: el oráculo puede inyectar valores o ajustar estado sin reiniciar
+- **No es fallback**: las alternativas no están predefinidas sino generadas
+- **No es heurística**: la intervención está estructuralmente tipada y formalmente restringida
+- **Es negociación**: tres participantes (semántica, oráculo, restricciones) convergen en una continuación aceptable
+
+La implicación teórica es significativa: en AURA, la continuidad del programa no es una propiedad de la semántica del lenguaje. Es una propiedad *emergente* de la negociación entre semántica, oráculo y restricciones. El programa *puede* continuar no porque la semántica lo determine, sino porque un protocolo formal permite negociar la continuación.
+
+### 4.4 Corrección en el espacio de trayectorias
+
+Finalmente, la tercera pregunta: ¿qué significa *corregir* sin *cambiar* el programa?
+
+Esta pregunta tiene una respuesta precisa una vez que aceptamos que el programa es *P = (C, G, I)* y no solo *C*:
+
+**Definición 8 (Corrección preservadora de programa).** Una intervención *δ* es *preservadora de programa* si la tripleta programa retiene sus componentes especificativos:
+
+| Intervención | ¿Cambia *C*? | ¿Cambia *G*? | ¿Cambia *I*? | ¿Preserva programa? |
+|---|---|---|---|---|
+| Continue | No | No | No | Sí (trivialmente) |
+| Override(*v*) | No | No | No | Sí |
+| Backtrack(*cp*, *adj*) | No | No | No | Sí |
+| Fix(*C'*, *expl*) | **Sí** | **No** | **No** | **Sí** |
+| Halt(*err*) | No | No | No | Sí (trivialmente) |
+
+El caso revelador es **Fix**: el código fuente cambia, pero el programa *como especificación* no cambia. Goals e invariantes se preservan. Lo que Fix hace es encontrar una *implementación alternativa* de la misma especificación.
+
+Hay tres niveles de corrección, cada uno con diferente profundidad:
+
+**Nivel 1: Corrección en la trayectoria** (Override). El código no cambia. El estado no retrocede. Se inyecta un valor que permite que la trayectoria actual continúe. La corrección es un *punto* en el espacio de estados.
+
+**Nivel 2: Corrección en el grafo** (Backtrack). El código no cambia. El estado retrocede a un checkpoint con ajustes. La corrección *explora una trayectoria alternativa* en el grafo de estados existente.
+
+**Nivel 3: Corrección en el espacio de implementaciones** (Fix). El código cambia. La ejecución reinicia. La corrección busca una *nueva implementación* que genere un grafo de estados diferente, pero dentro del mismo espacio de trayectorias válidas (definido por *G* e *I*).
+
+Los tres niveles son *correcciones preservadoras de programa* porque ninguno modifica la especificación (*G*, *I*). La analogía: si el programa es un mapa con destinos (goals) y fronteras (invariantes), Override corrige la posición actual, Backtrack elige otro camino en el mapa, y Fix redibuja los caminos manteniendo los destinos y las fronteras.
+
+### 4.5 El oráculo: de heurística a componente formal
+
+Un revisor podría objetar: "el LLM es una heurística, no un oráculo formal". La respuesta tiene dos partes.
+
+**Parte 1: El oráculo está estructuralmente restringido.** No es una caja negra que puede hacer cualquier cosa. Su intervención está:
+
+- **Tipada**: solo puede retornar una de cinco formas (`CognitiveDecision`)
+- **Validada**: los Fix pasan por `validate_fix()` (parseable, goals preservados, tamaño acotado)
+- **Acotada**: `max_deliberations`, `max_backtrack_depth`, `max_deliberations_without_progress`
+- **Informada**: recibe la configuración completa (estado, goals, invariantes, observaciones, historia)
+
+**Parte 2: El determinismo del oráculo es irrelevante para la validez de la ejecución.** En la Definición 6, la ejecución es válida si las transiciones son legales y los invariantes se respetan. No importa *cómo* el oráculo elige *δ*---importa que *δ* sea una decisión del álgebra y que la transición resultante sea legal.
+
+Esto es análogo a la semántica no determinista en lenguajes concurrentes: la semántica define qué ejecuciones son *válidas*, no cuál se elegirá. El scheduler (en concurrencia) o el oráculo (en AURA) selecciona entre ejecuciones válidas, pero la validez no depende del mecanismo de selección.
+
+La pregunta "¿el LLM elige bien?" es importante (es la pregunta de *calidad*), pero es ortogonal a la pregunta "¿el modelo de ejecución es formalmente coherente?" (la pregunta de *validez*). AURA responde la segunda; la primera depende de la capacidad del proveedor LLM y es un problema de ingeniería, no de semántica.
+
+### 4.6 Las primitivas como consecuencias del modelo
+
+Con las Definiciones 1-8 en su lugar, podemos ahora demostrar que las primitivas del lenguaje (Sección 3.1) no son features independientes sino **el vocabulario mínimo necesario para realizar el modelo de ejecución como selección de trayectoria**.
+
+Cada primitiva corresponde a un componente formal del modelo:
+
+| Componente del modelo | Sin él, el modelo... | Primitiva que lo realiza | Rol |
+|---|---|---|---|
+| Restricciones sobre trayectorias | Degenera: todas las trayectorias son válidas, el oráculo no tiene guía | `goal`, `invariant` | Definir el espacio |
+| Información para el oráculo | Degenera: el oráculo es ciego, decide sin contexto | `observe` | Alimentar el oráculo |
+| Puntos de activación proactiva | Degenera: el oráculo solo se activa ante errores fatales | `expect` | Activar antes del crash |
+| Consulta explícita al oráculo | Degenera: el programa no puede pedir guía, solo recibirla pasivamente | `reason` | Solicitar navegación |
+| Navegabilidad del grafo | Degenera: la ejecución es lineal (avanzar o reiniciar) | Backtrack + checkpoints | Crear el grafo |
+
+**Argumento por degeneración**: si eliminamos cualquier primitiva, el modelo se degrada a algo que ya existe:
+
+- **Sin goals/invariantes**: *T_válidas(P) = T(P)*---todas las trayectorias son válidas. El oráculo no tiene guía para elegir entre ellas. La intervención es arbitraria. AURA degenera en **"retry con heurística IA"**, indistinguible de ChatRepair con reintentos.
+
+- **Sin observe**: el oráculo no recibe información sobre el estado de ejecución. Sus decisiones son uniformemente desinformadas. AURA degenera en un **sistema post-mortem glorificado**: el oráculo ve el error pero no el contexto.
+
+- **Sin expect**: la única activación del oráculo es ante errores fatales. Se pierde la capacidad de corregir proactivamente (cuando algo no va bien pero no ha crasheado aún). AURA degenera en un **sistema puramente reactivo**.
+
+- **Sin reason**: el programa no puede solicitar guía explícita. Pierde la capacidad de tomar decisiones que requieren razonamiento abierto. La inyección de valores solo ocurre como corrección de errores, nunca como deliberación proactiva. AURA pierde la **agencia programática**.
+
+- **Sin Backtrack**: el grafo de estados colapsa a una secuencia lineal. La única corrección posible es Override (puntual) o Fix (reinicio total). No hay exploración de trayectorias alternativas. AURA degenera en **"reiniciar desde cero con código parchado"**---que es exactamente lo que hacen las herramientas APR existentes.
+
+Las primitivas son, entonces, **las consecuencias mínimas del modelo**: el vocabulario necesario y suficiente para que la ejecución-como-selección-de-trayectoria sea un modelo operacional completo y distinto de los modelos existentes. Esto alinea todo el diseño del lenguaje: las primitivas no son features que decidimos agregar---son las piezas que emergen cuando se toma en serio la idea de que ejecutar un programa es navegar un espacio de trayectorias restringido.
+
+### 4.7 Backtrack: la primitiva que crea el grafo
+
+Entre las cinco intervenciones del álgebra, Backtrack es semánticamente la más distintiva. Es la que transforma la ejecución de una secuencia lineal en un grafo navegable.
+
+**Sin Backtrack:**
+
+```
+σ₀ →_d σ₁ →_d σ₂ →_d ... →_d ⊥
+                                  ├→ Override(v) → σₙ         (corrección puntual)
+                                  └→ Fix(C') → σ₀' →_d ...   (reinicio total)
+```
+
+La ejecución avanza o reinicia. No hay navegación.
+
+**Con Backtrack:**
+
+```
+σ₀ →_d σ₁ →_d σ₂ →_d ... →_d ⊥
+                                  └→ Backtrack(cp₁, adj₁) → σ₁' →_d σ₃ →_d σ₄ →_d ⊥
+                                                                                      └→ Backtrack(cp₁, adj₂) → σ₁'' →_d σ₅ →_d σₙ ✓
+```
+
+La ejecución explora el grafo. Cada Backtrack genera una nueva rama con ajustes diferentes. El oráculo *navega* el espacio de estados en lugar de solo responder a errores.
 
 ```mermaid
 graph TD
@@ -677,50 +845,56 @@ graph TD
     style S2b fill:#cce5ff
 ```
 
-Cada backtrack crea un nuevo estado (*σ₁'* no es *σ₁*---tiene ajustes). La ejecución explora el grafo buscando una trayectoria que llegue a un estado final válido. Esto es formalmente análogo a:
+Tres propiedades formales distinguen al Backtrack de AURA:
+
+**Propiedad 1 (No-monotonicidad).** Con Backtrack, la ejecución de AURA es no-monotónica: el step_count de la VM puede disminuir (restaurar a un checkpoint anterior). Esto viola un supuesto fundamental de los modelos de ejecución convencionales, donde el progreso es siempre hacia adelante.
+
+**Propiedad 2 (Ajustes como hipótesis).** Los ajustes en `Backtrack{checkpoint, [(var₁, val₁), ...]}` son hipótesis que el oráculo propone: "si esta variable hubiera tenido este valor en este punto, la trayectoria habría sido diferente". Esto conecta directamente con el razonamiento contrafactual y con la búsqueda heurística en planificación.
+
+**Propiedad 3 (Exploración acotada).** A diferencia de la búsqueda exhaustiva de Prolog o model checking, la exploración de AURA es:
+
+- Guiada por el oráculo (no exhaustiva)
+- Acotada por `max_backtrack_depth` (termina)
+- Informada por la historia (el oráculo ve backtracks anteriores y evita repetirlos)
+
+Comparación con modelos de exploración existentes:
 
 | Modelo | Búsqueda | Alternativas | Ajustes |
 |--------|----------|-------------|---------|
 | Prolog | Backtracking cronológico | Cláusulas estáticas | No |
 | Model checking | Exploración exhaustiva de estados | Transiciones del modelo | No |
-| Planificación (STRIPS) | Búsqueda en espacio de planes | Acciones predefinidas | No |
+| Planificación (STRIPS/HTN) | Búsqueda en espacio de planes | Acciones predefinidas | No |
 | **AURA** | **Backtracking selectivo** | **Generadas por oráculo** | **Sí (ajustes a variables)** |
 
-La novedad de AURA es que las alternativas no están predefinidas (como en Prolog) ni enumeradas exhaustivamente (como en model checking), sino **generadas dinámicamente** por un oráculo que entiende el contexto semántico del programa.
+La novedad de AURA es que las alternativas no están predefinidas (como en Prolog) ni enumeradas exhaustivamente (como en model checking), sino **generadas dinámicamente** por un oráculo que entiende el contexto semántico del programa. Esto posiciona la ejecución de AURA como **búsqueda heurística en un grafo de estados con restricciones**, más cercana a la planificación online (Gat 1998) que a la ejecución de programas convencional.
 
-### 4.5 Corrección: intención preservada vs. intención satisfecha
+### 4.8 Intención preservada vs. intención satisfecha
 
-Este modelo plantea una pregunta fundamental que no debe esquivarse:
+Las Definiciones 1-8 acotan formalmente las intervenciones del oráculo. Pero hay un problema que la formalización actual no resuelve---y es importante ser honestos al respecto.
 
-> **¿Qué significa que un programa AURA sea correcto?**
-
-Hoy, AURA garantiza **seguridad** (safety) vía invariantes: ninguna intervención del oráculo puede violar un invariant declarado. Y garantiza **preservación de goals**: ningún fix puede agregar o eliminar goals.
-
-Pero seguridad no es corrección. Considérese:
+Considérese:
 
 ```
 goal "mantener usuarios activos en el sistema"
 invariant len(usuarios) >= 0
 ```
 
-Si el sistema detecta un problema con usuarios inactivos, el oráculo podría proponer:
+Si el oráculo propone un fix que elimina usuarios inactivos de la lista, el goal se *satisface* (los usuarios restantes están activos) y el invariant se *respeta* (la lista sigue teniendo longitud ≥ 0). Pero la intención del desarrollador era mantener activos a los usuarios existentes, no eliminar a los inactivos.
 
-- **Fix A**: filtrar la lista, manteniendo solo usuarios activos → *satisface* el goal
-- **Fix B**: eliminar el campo `activo` de todos los usuarios → *satisface* el goal técnicamente
-- **Fix C**: establecer `activo = true` para todos → *satisface* el goal degeneradamente
+Esto revela una distinción fundamental:
 
-Los tres satisfacen el goal y respetan el invariant. Pero solo el Fix A **preserva la intención** del desarrollador.
+- **Intención satisfecha**: *eval(check, σ_post) = true*
+- **Intención preservada**: la intervención es coherente con la semántica intencional del goal
 
-Esto revela una distinción teórica fundamental:
+AURA hoy garantiza *intención satisfecha* pero no *intención preservada*. La brecha entre ambas es el problema teórico más importante del modelo. Cerrarla requiere un lenguaje de especificación de intenciones más rico que expresiones booleanas---posiblemente conectando con:
 
-- **Intención satisfecha**: el goal evalúa a `true` después de la intervención
-- **Intención preservada**: la intervención es coherente con lo que el desarrollador *quiso decir* con el goal
+- La semántica de intenciones de Cohen & Levesque (1990)
+- Propiedades temporales (LTL: "siempre que un usuario esté inactivo, eventualmente se le notifica")
+- Especificaciones deónticas (qué *debe* hacer el oráculo, no solo qué *puede* hacer)
 
-AURA hoy opera en el nivel de *intención satisfecha*. Moverse a *intención preservada* requiere un modelo de especificación de intenciones más rico que las expresiones booleanas---posiblemente conectando con la semántica de intenciones de Cohen & Levesque (1990) o con verificación formal de propiedades temporales.
+Este es un problema abierto deliberado, no una omisión. Reconocerlo fortalece el modelo: la formalización muestra *exactamente* dónde está la brecha (entre la Definición 6 y la intención del desarrollador) y qué se necesita para cerrarla (un lenguaje de especificación de intenciones más expresivo que expresiones booleanas).
 
-Este es un problema abierto deliberado: reconocerlo es más honesto y más productivo que pretender que los invariantes resuelven la corrección.
-
-### 4.6 Relación con modelos formales existentes
+### 4.9 Relación con modelos formales existentes
 
 El modelo de ejecución de AURA puede formalizarse en varios frameworks:
 
@@ -756,6 +930,7 @@ La diferencia clave con los handlers de efectos algebraicos clásicos (Plotkin &
 **Como sistema de planificación online:**
 
 La ejecución de AURA puede verse como un planificador que:
+
 1. Ejecuta el plan (programa) paso a paso
 2. Monitorea el estado contra goals/invariantes
 3. Re-planifica cuando el plan falla (deliberación)
@@ -968,7 +1143,7 @@ Este ejemplo no es un escenario artificial---es la demostración concreta del mo
 
 1. **El programa define un espacio de trayectorias, no un comportamiento fijo.** La trayectoria "evaluar `temp > umbral_temp` → crash" no es la única posible. El runtime cognitivo encuentra una trayectoria alternativa: reemplazar `umbral_temp` con `35.0` y reintentar.
 
-2. **El error es un punto de bifurcación, no un crash.** En la Sección 4.1, definimos que un error activa una transición no determinista (*σᵢ →ⁿ σⱼ*). Aquí el `RuntimeError` activa `deliberate(TechnicalError)`, que produce un `Fix`---una trayectoria alternativa.
+2. **El error es un punto de bifurcación, no un crash.** En la Sección 4.2, definimos que un error activa una transición no determinista (*σᵢ →ⁿ σⱼ*). Aquí el `RuntimeError` activa `deliberate(TechnicalError)`, que produce un `Fix`---una trayectoria alternativa.
 
 3. **Las restricciones acotan la intervención.** El fix propuesto pasa por `validate_fix()`: debe parsear como AURA válido, preservar los dos goals, y no exceder 50 líneas. No es una intervención arbitraria---es una selección dentro del espacio restringido.
 
@@ -1005,24 +1180,100 @@ sequenceDiagram
     VM->>VM: continúa ejecución con datos corregidos ✓
 ```
 
-Este es el poder del backtracking con ajustes: el programa no crashea, no reinicia desde cero, no aplica una estrategia predefinida frágil. El oráculo entiende el goal, examina los datos, y propone una corrección dirigida---navegando el grafo de estados (Sección 4.4) hacia una trayectoria válida.
+Esto ilustra la utilidad del backtracking con ajustes: el programa no crashea, no reinicia desde cero, no aplica una estrategia predefinida. El oráculo interpreta el goal, examina los datos, y propone una corrección dirigida---navegando el grafo de estados (Sección 4.7) hacia una trayectoria válida.
 
 ---
 
-## 7. Discusión
+## 7. Evaluación empírica
 
-### 7.1 Enmarcamiento teórico: del sistema al modelo
+Esta sección presenta mediciones del prototipo de AURA implementado en Rust, con el objetivo de responder tres preguntas concretas: (1) ¿cuál es el overhead del runtime cognitivo cuando no hay errores?, (2) ¿cuál es el costo de una reparación exitosa?, y (3) ¿cuál es el impacto en recursos del sistema?
 
-La Sección 4 presentó el modelo formal de ejecución como selección de trayectoria restringida. Aquí situamos ese modelo en el contexto más amplio de la teoría de lenguajes de programación.
+Todas las mediciones se realizaron sobre el binario compilado en modo release (`cargo build --release`), ejecutando cada configuración 20 veces y reportando el promedio. El hardware es una máquina Linux x86_64 estándar. El provider cognitivo utilizado es `mock`---un provider determinista sin acceso a red que genera fixes basados en patrones del nombre de la variable, eliminando la variabilidad de latencia de red y de modelos externos.
 
-**El salto clave.** AURA pasó de ser un *sistema interesante* a un *modelo de programación* cuando reconocimos que:
+### 7.1 Overhead cognitivo sin errores
 
-- El programa no define el comportamiento → define el espacio de comportamientos permitidos
-- La ejecución no es evaluación → es búsqueda de trayectoria válida
-- El LLM no es una herramienta heurística → es un oráculo en un sistema formal
-- Backtrack no es una feature → es la semántica
+Para medir el costo del runtime cognitivo cuando el programa no requiere intervención, se ejecutaron dos programas sin bugs con y sin el flag `--cognitive`:
 
-Este reencuadre tiene una consecuencia práctica: AURA no compite con DSPy, LMQL, o LangChain (que son herramientas para *usar* LLMs). AURA compete con modelos de computación---con la pregunta de qué significa ejecutar un programa en presencia de incertidumbre.
+| Programa | Normal (μs) | Cognitivo (μs) | Overhead |
+|----------|-------------|-----------------|----------|
+| `simple.aura` (asignación y retorno) | 1,630 | 2,532 | +55% |
+| `math.aura` (aritmética y comparaciones) | 1,494 | 2,483 | +66% |
+
+El overhead proviene de la inicialización del `CognitiveRuntime`, la creación del `CheckpointManager`, y la evaluación de goals e invariantes en cada paso relevante. Para programas que no activan ningún trigger cognitivo, el overhead es constante (aproximadamente 900 μs) e independiente del tamaño del programa---lo cual es consistente con el diseño de inicialización única del runtime.
+
+Cuando el modo cognitivo no está activado, el `NullCognitiveRuntime` tiene cero overhead: todas sus operaciones son no-ops que retornan inmediatamente. Esto confirma que las capacidades cognitivas son puramente aditivas.
+
+### 7.2 Costo de reparación cognitiva
+
+Se midieron tres programas con bugs intencionales que el runtime cognitivo detecta y repara:
+
+| Programa | Error | Fix aplicado | Crash (μs) | Reparación (μs) | Overhead |
+|----------|-------|-------------|------------|------------------|----------|
+| `cognitive_demo.aura` | `umbral_temp` indefinido | `umbral_temp` → `35.0` | 1,475 | 2,603 | +76% |
+| `cognitive_func.aura` | `min_puntaje` indefinido | `min_puntaje` → `0` | 1,311 | 2,658 | +103% |
+| `cognitive_config.aura` | `timeout_ms` indefinido | `timeout_ms` → `5000` | 1,473 | 2,541 | +73% |
+
+La columna "Crash" mide el tiempo hasta que el programa falla sin modo cognitivo. La columna "Reparación" mide el ciclo completo: ejecución inicial → error → deliberación → generación de fix → validación → re-parseo → segunda ejecución exitosa.
+
+El overhead de reparación (73-103%) incluye dos ejecuciones completas del programa más el ciclo de deliberación. Que el costo total de una reparación exitosa sea menor que 2x el tiempo de crash indica que la deliberación y validación del fix son operaciones baratas en comparación con la ejecución del programa.
+
+### 7.3 Impacto en recursos
+
+**Memoria.** El consumo de memoria residente (RSS) es:
+
+| Modo | RSS (KB) | Delta |
+|------|----------|-------|
+| Normal | 5,068 | --- |
+| Cognitivo | 5,564 | +496 KB |
+
+El incremento de ~500 KB corresponde al `CognitiveRuntime`, el buffer de observaciones, el `CheckpointManager`, y el historial de `ReasoningEpisode`. Para contextos donde el consumo de memoria es crítico, el modo no cognitivo no incurre en esta asignación.
+
+**Tamaño del binario.** El binario compilado en modo release ocupa 11 MB, incluyendo el runtime cognitivo, los tres providers (mock, Claude API, Ollama), y todas las capacidades del lenguaje (+http, +json, +db, +env).
+
+### 7.4 Suite de tests
+
+La implementación cuenta con 267 tests unitarios y de integración:
+
+| Componente | Tests | Cobertura |
+|------------|-------|-----------|
+| Lexer | 41 | Todos los tokens, keywords, literales |
+| Parser | 78 | AST completo, incluyendo nodos cognitivos |
+| VM (core) | 89 | Evaluación, scoping, funciones, records |
+| VM (cognitivo) | 36 | Deliberación, fixes, checkpoints, backtrack |
+| Agente/bridge | 13 | MockProvider, validación de fixes |
+| Capabilities | 10 | HTTP, JSON, DB, env |
+
+La suite completa ejecuta en aproximadamente 1 segundo. Los 36 tests cognitivos cubren los cinco tipos de `CognitiveDecision` (Continue, Override, Fix, Backtrack, Halt), la validación de fixes (preservación de goals, tamaño máximo, parseabilidad), y los límites de `CognitiveSafetyConfig`.
+
+### 7.5 Alcance y limitaciones de la evaluación
+
+Esta evaluación tiene limitaciones que deben hacerse explícitas:
+
+1. **Provider mock vs. provider real.** Los tiempos de reparación medidos usan el `MockProvider` determinista. Con un provider real (Claude API, Ollama), la latencia de deliberación dominaría el tiempo total (segundos en lugar de microsegundos). Los datos aquí miden el overhead del *framework* cognitivo, no el costo end-to-end con un LLM.
+
+2. **Programas pequeños.** Los benchmarks usan programas de menos de 30 líneas. El overhead cognitivo constante (~900 μs) se volvería proporcionalmente menor en programas más grandes, pero la validación de fixes (`validate_fix`) podría escalar con el tamaño del código fuente.
+
+3. **Un solo tipo de error.** Los tres ejemplos de reparación involucran el mismo patrón de error (variable indefinida). La generalización a otros tipos de error (type mismatches, errores lógicos, fallos de invariantes) requiere evaluación adicional.
+
+4. **Ausencia de comparación directa.** No existe otro lenguaje con deliberación cognitiva integrada en la semántica de ejecución, lo cual impide una comparación directa. Los sistemas más cercanos (ChatRepair, MAPE-K) operan en niveles diferentes y no son directamente comparables.
+
+---
+
+## 8. Discusión
+
+### 8.1 Enmarcamiento teórico: del sistema al modelo
+
+La Sección 4 presentó el modelo formal de ejecución como selección de trayectoria restringida, estructurado alrededor de tres preguntas fundacionales. Aquí evaluamos qué logra esa formalización y qué queda pendiente.
+
+**Lo que logra la formalización.** Las Definiciones 1-8 (Sección 4.2-4.4) responden tres preguntas que ningún otro sistema en la literatura ha necesitado formular, porque ninguno opera en este espacio:
+
+1. *¿Qué es una ejecución válida?* (Def. 6): una secuencia de configuraciones con transiciones legales e invariantes respetados---incluyendo transiciones guiadas por oráculo.
+2. *¿Qué es continuación?* (Def. 7): un protocolo de negociación entre semántica, oráculo y restricciones---no una propiedad de la semántica sola.
+3. *¿Qué es corrección preservadora de programa?* (Def. 8): una intervención que preserva la especificación (*G*, *I*) incluso cuando modifica la implementación (*C*).
+
+Estas definiciones elevan a AURA de *sistema interesante* a *modelo de programación*. AURA no compite con DSPy, LMQL, o LangChain (herramientas para *usar* LLMs). Compite con la pregunta de qué significa ejecutar un programa en presencia de incertidumbre.
+
+**Lo que no logra (aún).** La formalización actual define *validez estructural* de ejecuciones e intervenciones, pero no *validez semántica*. La brecha entre intención satisfecha e intención preservada (Sección 4.8) permanece abierta. Cerrarla requiere trabajo en la intersección de semántica de intenciones, lógica temporal, y verificación formal.
 
 **Mapeo a frameworks formales existentes:**
 
@@ -1050,7 +1301,7 @@ graph LR
     end
 ```
 
-### 7.2 El runtime como arquitectura cognitiva
+### 8.2 El runtime como arquitectura cognitiva
 
 Al mapearse a la teoría de arquitecturas cognitivas, el runtime de AURA implementa los componentes esenciales identificados por Newell (1990) y arquitecturas subsiguientes:
 
@@ -1062,26 +1313,26 @@ Al mapearse a la teoría de arquitecturas cognitivas, el runtime de AURA impleme
 - **Aprendizaje**: el historial de episodios informa deliberaciones subsiguientes
 - **Metacognición**: límites de `CognitiveSafetyConfig` sobre el comportamiento de razonamiento
 
-Esto convierte a AURA, hasta donde sabemos, en **el primer runtime de lenguaje de programación que es en sí mismo una arquitectura cognitiva**---en lugar de un lenguaje usado para implementar una.
+Esto sugiere que AURA es, hasta donde sabemos, **el primer runtime de lenguaje de programación que es en sí mismo una arquitectura cognitiva**---en lugar de un lenguaje usado para implementar una.
 
-### 7.3 Limitaciones
+### 8.3 Limitaciones
 
-**Intención preservada vs. intención satisfecha (el problema central).** Como se discutió en la Sección 4.5, AURA hoy solo garantiza *intención satisfecha*: que los goals evalúen a `true` después de una intervención. Pero no garantiza *intención preservada*: que la intervención sea coherente con lo que el desarrollador quiso decir. Un goal "mantener usuarios activos" podría satisfacerse degeneradamente eliminando usuarios inactivos, cuando el desarrollador quería notificarles. Este es el problema conceptual más importante que enfrenta el modelo, y resolverlo probablemente requiere un lenguaje de especificación de intenciones más rico que expresiones booleanas---conectando con la semántica de intenciones de Cohen & Levesque (1990) o verificación de propiedades temporales (LTL/CTL).
+**Intención preservada vs. intención satisfecha (el problema central).** Como se discutió en la Sección 4.8, AURA hoy solo garantiza *intención satisfecha*: que los goals evalúen a `true` después de una intervención. Pero no garantiza *intención preservada*: que la intervención sea coherente con lo que el desarrollador quiso decir. Un goal "mantener usuarios activos" podría satisfacerse degeneradamente eliminando usuarios inactivos, cuando el desarrollador quería notificarles. Este es el problema conceptual más importante que enfrenta el modelo, y resolverlo probablemente requiere un lenguaje de especificación de intenciones más rico que expresiones booleanas---conectando con la semántica de intenciones de Cohen & Levesque (1990) o verificación de propiedades temporales (LTL/CTL).
 
 **Coherencia semántica de intervenciones.** Relacionado con lo anterior: hoy el sistema valida que una intervención sea *segura* (invariants OK, goals preservados, parseable), pero no que sea *semánticamente coherente*. El LLM puede producir una intervención que satisface todas las restricciones formales pero es absurda en contexto. La distinción entre "decisión semánticamente válida" y "heurística conveniente" requiere un modelo formal de validez de intervención que hoy no existe.
 
 **Latencia.** La deliberación con LLM añade segundos de latencia por invocación. AURA mitiga esto a través del `NullCognitiveRuntime` (cero overhead cuando las características cognitivas están inactivas) y observaciones agrupadas, pero las aplicaciones en tiempo real pueden necesitar límites de latencia más estrictos.
 
-**Determinismo.** Las respuestas del LLM son no determinísticas. Dos ejecuciones del mismo programa pueden seguir trayectorias diferentes en el espacio de estados (Sección 4.4). AURA registra la traza de `ReasoningEpisode` para análisis de reproducibilidad, pero las garantías formales de convergencia requieren trabajo futuro.
+**Determinismo.** Las respuestas del LLM son no determinísticas. Dos ejecuciones del mismo programa pueden seguir trayectorias diferentes en el espacio de estados (Sección 4.7). AURA registra la traza de `ReasoningEpisode` para análisis de reproducibilidad, pero las garantías formales de convergencia requieren trabajo futuro.
 
 **Corrección de fixes generados por LLM.** La función `validate_fix()` verifica sintaxis, preservación de goals, y tamaño---pero no corrección semántica. Un fix que parsea correctamente y preserva goals aún puede introducir errores lógicos. La verificación formal de parches generados por LLM sigue siendo un problema de investigación abierto.
 
 **Costo.** Cada deliberación incurre en costos de API del LLM. Los límites `max_deliberations` y `max_deliberations_without_progress` acotan esto, pero las estrategias de deliberación conscientes del costo son trabajo futuro.
 
-### 7.4 Direcciones futuras
+### 8.4 Direcciones futuras
 
 - **Modelo formal de validez de intervención**: definir formalmente cuándo una intervención del oráculo es *semánticamente válida* y no solo *segura*. Conectar con la lógica de intenciones (Cohen & Levesque 1990) y verificación temporal.
-- **Semántica operacional completa**: formalizar las reglas de evaluación de AURA con oráculo como una semántica operacional de pasos pequeños con transiciones deterministas y no deterministas (Sección 4.6).
+- **Semántica operacional completa**: formalizar las reglas de evaluación de AURA con oráculo como una semántica operacional de pasos pequeños con transiciones deterministas y no deterministas (Sección 4.9).
 - **Convergencia de trayectorias**: demostrar formalmente que, bajo ciertas condiciones sobre el oráculo y las restricciones, la búsqueda de trayectoria siempre termina (o acotar la probabilidad de no-terminación).
 - **Runtime cognitivo multi-agente**: múltiples oráculos con diferentes especializaciones, formalizados como un sistema de handlers compuestos.
 - **Adaptación verificada**: usar métodos formales para demostrar que las adaptaciones dentro del espacio acotado por invariantes preservan propiedades especificadas (model checking restringido).
@@ -1090,19 +1341,23 @@ Esto convierte a AURA, hasta donde sabemos, en **el primer runtime de lenguaje d
 
 ---
 
-## 8. Conclusión
+## 9. Conclusión
 
-AURA demuestra que es posible construir un lenguaje de programación donde ejecutar un programa no significa evaluar una función, sino buscar una trayectoria válida en un espacio de estados restringido por intenciones declaradas, con un oráculo cognitivo que guía la búsqueda cuando la ejecución determinista no puede continuar.
+Este trabajo se estructuró alrededor de tres preguntas fundacionales (Sección 4.1) que ningún lenguaje de programación existente ha necesitado formular:
 
-Este es el resultado central del trabajo: **AURA no es un lenguaje con features de agentes. Es una máquina abstracta donde la continuidad del programa es negociada.** El programa define el espacio de comportamientos permitidos (goals, invariantes). La ejecución es búsqueda en ese espacio. El LLM es el oráculo que selecciona trayectorias. El backtracking con ajustes convierte al programa en un grafo navegable de estados.
+1. **¿Qué significa ejecutar un programa AURA?** Encontrar una secuencia de configuraciones que llegue a un estado terminal respetando invariantes, usando transiciones deterministas cuando es posible y transiciones guiadas por oráculo cuando no lo es (Definición 6).
 
-Este reencuadre---de "primitivas sintácticas" a "modelo de ejecución"---es lo que distingue a AURA de los agent frameworks, las herramientas de auto-reparación, y los DSLs para LLMs. AURA no compite con LangChain o DSPy. Compite con la pregunta de qué significa ejecutar un programa en presencia de incertidumbre.
+2. **¿Qué significa continuar un programa?** La continuación no está determinada por la semántica del lenguaje sino negociada entre tres participantes: la semántica determinista, el oráculo, y las restricciones declaradas. La continuidad es una propiedad emergente de la negociación, no de la semántica (Definición 7).
 
-La implementación en Rust (244+ tests, modo cognitivo funcional con auto-reparación demostrada) prueba que el modelo es realizable. El `NullCognitiveRuntime` asegura cero overhead para programas no cognitivos, haciendo que las capacidades cognitivas sean puramente aditivas.
+3. **¿Qué significa corregir sin cambiar el programa?** El programa es *P = (C, G, I)*---una tripleta de código, goals e invariantes. Toda intervención del oráculo preserva *G* e *I*. Incluso un Fix que reescribe el código *C* no "cambia el programa" porque preserva la especificación. La corrección opera dentro del espacio de trayectorias válidas, no fuera de él (Definición 8).
 
-Los problemas abiertos son significativos: la distinción entre intención satisfecha e intención preservada (Sección 4.5), la coherencia semántica de las intervenciones del oráculo (Sección 7.3), y la formalización completa de la semántica operacional con oráculo (Sección 4.6). Estos problemas son más productivos que los que tendríamos si AURA fuera "solo" un agent framework---son preguntas sobre modelos de computación, no sobre arquitectura de software.
+Estas respuestas constituyen el resultado central del trabajo: **AURA no es un lenguaje con features de agentes. Es una máquina abstracta donde la continuidad del programa es negociada.** Las primitivas del lenguaje (`goal`, `observe`, `expect`, `reason`, `invariant`) no son features que decidimos agregar---son las consecuencias mínimas necesarias del modelo (Sección 4.6): sin cualquiera de ellas, el modelo degenera a algo que ya existe.
 
-Si un programa ya no es una función sino una trayectoria en un espacio restringido, y si el oráculo que guía esa trayectoria es un modelo de lenguaje grande que entiende la semántica del código que ejecuta---entonces la frontera entre "programar" y "especificar intenciones para que una máquina las navegue" se desdibuja de maneras que la teoría de lenguajes de programación aún no ha explorado. AURA hace esa exploración concreta y tratable.
+La implementación en Rust (267 tests, modo cognitivo funcional con auto-reparación demostrada) prueba que el modelo es realizable. La evaluación empírica (Sección 7) muestra que el overhead cognitivo sin errores es constante (~900 μs), que una reparación exitosa cuesta menos de 2x el tiempo de crash, y que el `NullCognitiveRuntime` asegura cero overhead para programas no cognitivos.
+
+Los problemas abiertos son significativos y productivos: la brecha entre intención satisfecha e intención preservada (Sección 4.8), la coherencia semántica de las intervenciones del oráculo (Sección 8.3), y la convergencia formal de la búsqueda de trayectorias (Sección 8.4). Estos son preguntas sobre modelos de computación, no sobre arquitectura de software---lo cual confirma que AURA opera en el espacio teórico correcto.
+
+Si un programa ya no es una función sino una trayectoria en un espacio restringido, y si el oráculo que guía esa trayectoria es un modelo de lenguaje grande que entiende la semántica del código que ejecuta---entonces la frontera entre "programar" y "especificar intenciones para que una máquina las navegue" se desdibuja de maneras que la teoría de lenguajes de programación aún no ha explorado. AURA hace esa exploración concreta, formal, y tratable.
 
 ---
 

@@ -1,0 +1,27 @@
+# Demo Cognitivo 3 - Variable de configuracion indefinida
+#
+# Demuestra reparacion cognitiva con patron de nombre "timeout".
+# El MockProvider reconoce que timeout_ms implica un valor numerico
+# y reemplaza la referencia con 5000.
+#
+# Sin cognitive (crash):
+#   aura run examples/cognitive_config.aura
+#   -> Error: "Variable no definida: timeout_ms"
+#
+# Con cognitive (auto-reparacion):
+#   aura run --cognitive --provider mock examples/cognitive_config.aura
+
++http +json
+
+goal "configurar servicio correctamente"
+goal "verificar parametros" check config != nil
+
+invariant len(config) >= 0
+
+obtener_config() = [{param: "host", valor: "localhost"}, {param: "puerto", valor: 8080}, {param: "modo", valor: "produccion"}]
+
+# Bug intencional: timeout_ms NO esta definido
+# El MockProvider reconoce el patron "timeout" y lo reemplaza con 5000
+calcular_espera(base) = base + timeout_ms
+
+main = : config = obtener_config(); observe config; expect len(config) > 0 "sin configuracion"; c1 = first(config); print("Config: {c1.param} = {c1.valor}"); espera = calcular_espera(100); print("Tiempo de espera: {espera}ms"); expect espera "espera debe ser positiva"; print("Servicio configurado"); espera
