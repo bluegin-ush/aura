@@ -359,7 +359,24 @@ impl VM {
         match self.env.get_function("main") {
             Some(main_func) => {
                 let body = main_func.body.clone();
-                self.eval(&body)
+                match self.eval(&body) {
+                    Ok(val) => Ok(val),
+                    Err(err) => {
+                        if self.cognitive.is_active() {
+                            let decision = self.cognitive.deliberate(
+                                DeliberationTrigger::TechnicalError { error: err.clone() }
+                            );
+                            match decision {
+                                CognitiveDecision::Fix { new_code, explanation } => {
+                                    self.pending_fixes.push((new_code, explanation));
+                                }
+                                CognitiveDecision::Override(val) => return Ok(val),
+                                _ => {}
+                            }
+                        }
+                        Err(err)
+                    }
+                }
             }
             None => Err(RuntimeError::new("No se encontró función 'main'")),
         }
@@ -1472,13 +1489,35 @@ impl VM {
             (Value::Bool(a), BinaryOp::Concat, Value::String(b)) => Ok(Value::String(format!("{}{}", a, b))),
             (Value::String(a), BinaryOp::Add, Value::String(b)) => Ok(Value::String(format!("{}{}", a, b))),
 
-            // Comparaciones
+            // Comparaciones enteras
             (Value::Int(a), BinaryOp::Eq, Value::Int(b)) => Ok(Value::Bool(a == b)),
             (Value::Int(a), BinaryOp::NotEq, Value::Int(b)) => Ok(Value::Bool(a != b)),
             (Value::Int(a), BinaryOp::Lt, Value::Int(b)) => Ok(Value::Bool(a < b)),
             (Value::Int(a), BinaryOp::Gt, Value::Int(b)) => Ok(Value::Bool(a > b)),
             (Value::Int(a), BinaryOp::LtEq, Value::Int(b)) => Ok(Value::Bool(a <= b)),
             (Value::Int(a), BinaryOp::GtEq, Value::Int(b)) => Ok(Value::Bool(a >= b)),
+
+            // Comparaciones flotantes
+            (Value::Float(a), BinaryOp::Eq, Value::Float(b)) => Ok(Value::Bool(a == b)),
+            (Value::Float(a), BinaryOp::NotEq, Value::Float(b)) => Ok(Value::Bool(a != b)),
+            (Value::Float(a), BinaryOp::Lt, Value::Float(b)) => Ok(Value::Bool(a < b)),
+            (Value::Float(a), BinaryOp::Gt, Value::Float(b)) => Ok(Value::Bool(a > b)),
+            (Value::Float(a), BinaryOp::LtEq, Value::Float(b)) => Ok(Value::Bool(a <= b)),
+            (Value::Float(a), BinaryOp::GtEq, Value::Float(b)) => Ok(Value::Bool(a >= b)),
+
+            // Comparaciones mixtas Int/Float
+            (Value::Int(a), BinaryOp::Eq, Value::Float(b)) => Ok(Value::Bool((*a as f64) == *b)),
+            (Value::Int(a), BinaryOp::NotEq, Value::Float(b)) => Ok(Value::Bool((*a as f64) != *b)),
+            (Value::Int(a), BinaryOp::Lt, Value::Float(b)) => Ok(Value::Bool((*a as f64) < *b)),
+            (Value::Int(a), BinaryOp::Gt, Value::Float(b)) => Ok(Value::Bool((*a as f64) > *b)),
+            (Value::Int(a), BinaryOp::LtEq, Value::Float(b)) => Ok(Value::Bool((*a as f64) <= *b)),
+            (Value::Int(a), BinaryOp::GtEq, Value::Float(b)) => Ok(Value::Bool((*a as f64) >= *b)),
+            (Value::Float(a), BinaryOp::Eq, Value::Int(b)) => Ok(Value::Bool(*a == (*b as f64))),
+            (Value::Float(a), BinaryOp::NotEq, Value::Int(b)) => Ok(Value::Bool(*a != (*b as f64))),
+            (Value::Float(a), BinaryOp::Lt, Value::Int(b)) => Ok(Value::Bool(*a < (*b as f64))),
+            (Value::Float(a), BinaryOp::Gt, Value::Int(b)) => Ok(Value::Bool(*a > (*b as f64))),
+            (Value::Float(a), BinaryOp::LtEq, Value::Int(b)) => Ok(Value::Bool(*a <= (*b as f64))),
+            (Value::Float(a), BinaryOp::GtEq, Value::Int(b)) => Ok(Value::Bool(*a >= (*b as f64))),
 
             (Value::String(a), BinaryOp::Eq, Value::String(b)) => Ok(Value::Bool(a == b)),
             (Value::String(a), BinaryOp::NotEq, Value::String(b)) => Ok(Value::Bool(a != b)),

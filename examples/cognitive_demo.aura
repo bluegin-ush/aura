@@ -1,30 +1,37 @@
-# Cognitive Runtime Demo
+# Demo Cognitivo - Monitor de Sensores IoT
 #
-# This example demonstrates AURA v2.0 cognitive features:
-# - observe: monitor variable changes
-# - goal with check: active goal evaluation
-# - expect: intention verification with cognitive deliberation
-# - reason: explicit deliberation blocks
+# Este ejemplo demuestra las capacidades cognitivas de AURA v2.0:
+# - goal con check: evaluacion activa de intenciones
+# - observe: monitoreo de variables con checkpoints
+# - expect: verificacion de condiciones
+# - reason: deliberacion explicita
+# - invariant: restricciones de seguridad
+# - Auto-reparacion: variable indefinida detectada y reparada
 #
-# Run with: aura run --cognitive --provider mock examples/cognitive_demo.aura
+# Sin cognitive (crash):
+#   aura run examples/cognitive_demo.aura
+#   -> Error: "Variable no definida: umbral_temp"
+#
+# Con cognitive (auto-reparacion):
+#   aura run --cognitive --provider mock examples/cognitive_demo.aura
+#   -> Repara umbral_temp, ejecuta completo, reporta fix aplicado
 
 +http +json
 
-goal "process user data correctly"
-goal "all users must have valid names" check users != nil
+goal "monitorear todos los sensores"
+goal "detectar anomalias termicas" check lecturas != nil
 
-# Define a simple user type
-@User {
-    id :i
-    name :s
-    email :s
-}
+invariant len(lecturas) >= 0
 
-# Simulated data source
-fetch_users() = [{id: 1, name: "Alice", email: "alice@example.com"}, {id: 2, name: "Bob", email: "bob@example.com"}, {id: 3, name: "Charlie", email: "charlie@example.com"}]
+# Simula lecturas de sensores IoT
+obtener_lecturas() = [{sensor: "TH-01", temp: 22.5, humedad: 45}, {sensor: "TH-02", temp: 38.7, humedad: 30}, {sensor: "TH-03", temp: 21.0, humedad: 55}]
 
-# Format a single user for display
-format_user(user) = "User {user.id}: {user.name} <{user.email}>"
+# Bug intencional: umbral_temp NO esta definido
+# El runtime cognitivo detecta el error y reemplaza umbral_temp con 35
+es_anomalia(temp) = temp > umbral_temp
 
-# Main: fetch users, observe, verify expectations, reason, and format
-main = : users = fetch_users(); observe users; expect len(users) > 0 "should have users"; strategy = reason "we have users, should we process all or filter?"; first_user = first(users); format_user(first_user)
+# Formatea una alerta para un sensor
+formatear_alerta(s) = "ALERTA: sensor {s.sensor} reporta {s.temp}C"
+
+# Punto de entrada principal
+main = : lecturas = obtener_lecturas(); observe lecturas; expect len(lecturas) > 0 "sin datos de sensores"; s1 = first(lecturas); s2 = first(tail(lecturas)); print("Sensor {s1.sensor}: {s1.temp}C"); print("Sensor {s2.sensor}: {s2.temp}C"); a2 = es_anomalia(s2.temp); expect a2 "se esperaba anomalia en {s2.sensor}"; alerta = formatear_alerta(s2); print(alerta); accion = reason "sensor {s2.sensor} en {s2.temp}C, que accion tomar?"; print("Analisis completo"); s2.temp

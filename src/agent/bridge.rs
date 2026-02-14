@@ -150,41 +150,57 @@ impl MockProvider {
 
         // Error: Variable no definida
         if error_msg.contains("Variable no definida:") || error_msg.contains("Undefined variable:") {
-            if let Some(var_name) = error_msg.split(':').last().map(|s| s.trim()) {
-                // Buscar dónde se usa la variable y agregar definición antes
-                let lines: Vec<&str> = source.lines().collect();
-                let mut result = Vec::new();
-                let mut added = false;
-
-                for line in &lines {
-                    // Si la línea usa la variable y no hemos agregado la definición
-                    if !added && line.contains(var_name) && !line.contains(&format!("{} =", var_name)) {
-                        // Agregar definición con valor por defecto inteligente
-                        let default_value = if var_name.contains("url") || var_name.contains("endpoint") || var_name.contains("api") {
-                            "\"https://jsonplaceholder.typicode.com\""
-                        } else if var_name.contains("token") || var_name.contains("key") {
-                            "env.get(\"API_KEY\", \"demo-key\")"
-                        } else if var_name == "name" || var_name == "s" || var_name == "str" {
-                            "\"default\""
-                        } else if var_name == "list" || var_name == "items" || var_name == "arr" {
-                            "[]"
-                        } else if var_name == "x" || var_name == "n" || var_name == "num" || var_name == "id" {
-                            "1"
-                        } else {
-                            "nil"
-                        };
-                        result.push(format!("{} = {}", var_name, default_value));
-                        added = true;
-                    }
-                    result.push(line.to_string());
-                }
-                return result.join("\n");
+            let var_name_opt = error_msg
+                .find("Variable no definida:")
+                .map(|i| &error_msg[i + "Variable no definida:".len()..])
+                .or_else(|| error_msg.find("Undefined variable:")
+                    .map(|i| &error_msg[i + "Undefined variable:".len()..]))
+                .map(|s| s.trim_start().split(|c: char| c.is_whitespace() || c == '\n').next().unwrap_or("").trim());
+            if let Some(var_name) = var_name_opt.filter(|s| !s.is_empty()) {
+                // Determinar valor por defecto inteligente
+                let default_value = if var_name.contains("url") || var_name.contains("endpoint") || var_name.contains("api") {
+                    "\"https://jsonplaceholder.typicode.com\""
+                } else if var_name.contains("token") || var_name.contains("key") {
+                    "\"demo-key\""
+                } else if var_name.contains("umbral") || var_name.contains("threshold") {
+                    "35.0"
+                } else if var_name.contains("max") || var_name.contains("limit") || var_name.contains("size") {
+                    "100"
+                } else if var_name.contains("min") {
+                    "0"
+                } else if var_name.contains("count") || var_name.contains("total") {
+                    "0"
+                } else if var_name.contains("timeout") || var_name.contains("delay") {
+                    "5000"
+                } else if var_name.contains("rate") || var_name.contains("factor") {
+                    "1.0"
+                } else if var_name.contains("enabled") || var_name.contains("active") {
+                    "true"
+                } else if var_name == "name" || var_name == "s" || var_name == "str" {
+                    "\"default\""
+                } else if var_name == "list" || var_name == "items" || var_name == "arr" {
+                    "[]"
+                } else if var_name == "x" || var_name == "n" || var_name == "num" || var_name == "id" {
+                    "1"
+                } else {
+                    "nil"
+                };
+                // Reemplazar la referencia a la variable con el valor literal
+                return source.replace(var_name, default_value);
             }
         }
 
         // Error: Función no definida
-        if error_msg.contains("Función no definida:") || error_msg.contains("Undefined function:") {
-            if let Some(func_name) = error_msg.split(':').last().map(|s| s.trim()) {
+        if error_msg.contains("Función no definida:") || error_msg.contains("Función no encontrada:") || error_msg.contains("Undefined function:") {
+            let func_name_opt = error_msg
+                .find("Función no definida:")
+                .map(|i| &error_msg[i + "Función no definida:".len()..])
+                .or_else(|| error_msg.find("Función no encontrada:")
+                    .map(|i| &error_msg[i + "Función no encontrada:".len()..]))
+                .or_else(|| error_msg.find("Undefined function:")
+                    .map(|i| &error_msg[i + "Undefined function:".len()..]))
+                .map(|s| s.trim_start().split(|c: char| c.is_whitespace() || c == '\n').next().unwrap_or("").trim());
+            if let Some(func_name) = func_name_opt.filter(|s| !s.is_empty()) {
                 // Agregar stub de función al inicio
                 let stub = format!("{}(x) = x  # TODO: implementar\n\n", func_name);
                 return format!("{}{}", stub, source);
@@ -209,8 +225,8 @@ impl MockProvider {
     /// Genera una explicación del fix
     fn generate_explanation(&self, error_msg: &str) -> String {
         if error_msg.contains("Variable no definida") || error_msg.contains("Undefined variable") {
-            "La variable no estaba definida. Se agregó una definición con un valor por defecto.".to_string()
-        } else if error_msg.contains("Función no definida") || error_msg.contains("Undefined function") {
+            "La variable no estaba definida. Se reemplazó con un valor por defecto.".to_string()
+        } else if error_msg.contains("Función no definida") || error_msg.contains("Función no encontrada") || error_msg.contains("Undefined function") {
             "La función no existía. Se agregó un stub que debe ser implementado.".to_string()
         } else if error_msg.contains("División por cero") || error_msg.contains("division by zero") {
             "Se detectó una división por cero. Se cambió el divisor a 1.".to_string()
