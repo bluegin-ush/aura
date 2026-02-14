@@ -4,7 +4,7 @@
 
 ---
 
-**Resumen.** Presentamos AURA (Agent-Unified Runtime Architecture), un lenguaje de programación que incorpora un ciclo de deliberación cognitiva---observar, razonar, ajustar, continuar---directamente en su semántica de ejecución. A diferencia de los enfoques existentes donde los modelos de lenguaje grande (LLMs) operan como herramientas externas de generación de código (GitHub Copilot, ChatRepair) o donde la auto-reparación opera a nivel de sistemas (MAPE-K, Rainbow), AURA introduce *primitivas cognitivas* (`goal`, `observe`, `expect`, `invariant`, `reason`) como construcciones sintácticas de primera clase que se parsean en nodos AST con reglas de evaluación definidas. Cuando un programa se ejecuta bajo el runtime cognitivo de AURA, la máquina virtual puede pausar en puntos arbitrarios de ejecución, reificar el contexto completo de ejecución (variables, goals, invariantes, historial de observaciones, checkpoints), despachar a un LLM para deliberación, y resumir con una de cinco intervenciones estructuralmente tipadas: continuar, inyección de valor, parcheo de código, backtracking basado en checkpoints con ajustes, o detención. Los goals e invariantes declarados por el desarrollador restringen todas las modificaciones generadas por el LLM, creando un espacio de adaptación formalmente acotado. Hasta donde sabemos, AURA es el primer lenguaje de programación donde (1) la deliberación cognitiva es parte de la semántica operacional, (2) un LLM participa como componente del runtime con acceso al estado de ejecución en vivo, y (3) los invariantes declarados por el desarrollador imponen restricciones de seguridad sobre las modificaciones de programa generadas por IA a nivel del lenguaje.
+**Resumen.** Presentamos AURA (Agent-Unified Runtime Architecture), un lenguaje de programación cuya máquina virtual redefine qué significa ejecutar un programa: en AURA, un programa no es una función que mapea entradas a salidas, sino la especificación de un *espacio de trayectorias de ejecución válidas*, restringido por goals e invariantes declarados por el desarrollador, donde un agente cognitivo (respaldado por un LLM) actúa como oráculo que selecciona trayectorias viables cuando la ejecución determinista no puede continuar. A diferencia de los enfoques existentes donde los LLMs operan como herramientas externas de generación de código (GitHub Copilot, ChatRepair), como orquestadores de agentes (LangChain, DSPy), o donde la auto-reparación opera a nivel de sistemas (MAPE-K, Rainbow), AURA incorpora la deliberación cognitiva directamente en su semántica operacional: la VM puede suspender la evaluación en puntos arbitrarios, reificar el contexto completo de ejecución (variables, goals, invariantes, historial de observaciones, checkpoints), despachar a un LLM para deliberación, y resumir con una de cinco intervenciones estructuralmente tipadas---continuar, inyección de valor, parcheo de código, backtracking basado en checkpoints con ajustes, o detención. El backtracking con ajustes es la intervención central: convierte al programa en un *grafo navegable de estados* donde la ejecución puede retroceder y explorar trayectorias alternativas, acercando AURA a la semántica de búsqueda de Prolog, los handlers de efectos algebraicos, y el sistema de condiciones/restarts de Common Lisp---pero con un oráculo generativo en lugar de handlers estáticos. Hasta donde sabemos, AURA es el primer lenguaje de programación donde (1) la deliberación cognitiva es parte de la semántica operacional, no una capa externa, (2) la ejecución se modela como selección de trayectoria en un espacio restringido por intenciones declaradas, y (3) un LLM participa como componente del runtime que selecciona entre continuaciones semánticamente válidas, no como herramienta heurística arbitraria.
 
 ---
 
@@ -52,19 +52,50 @@ graph LR
     F2 -.-> C2
 ```
 
-### 1.3 Contribuciones
+### 1.3 El salto conceptual
+
+Sin embargo, describir AURA como "un lenguaje con primitivas de agentes" sería reduccionista. Lo que AURA realmente implementa es algo más profundo:
+
+> **AURA no es un lenguaje que permite deliberación. AURA es una máquina abstracta donde la continuidad del programa es negociada.**
+
+En un lenguaje convencional, un programa define *el* comportamiento: dada una entrada, la semántica del lenguaje determina una única traza de ejecución (o falla). En AURA, un programa define el *espacio permitido* de comportamientos. Los goals y los invariantes restringen ese espacio. La ejecución es entonces **búsqueda guiada en un espacio de trayectorias válidas**, donde el agente cognitivo actúa como oráculo de selección.
+
+Esto cambia radicalmente el estatus del programa:
+
+| Aspecto | Lenguaje convencional | AURA |
+|---------|----------------------|------|
+| El programa define | El comportamiento | El espacio de comportamientos permitidos |
+| La ejecución es | Evaluación determinista | Búsqueda de trayectoria válida |
+| Un error es | Un crash | Un punto de bifurcación |
+| El estado es | Una secuencia | Un grafo navegable |
+| La continuación es | Determinada por la semántica | Negociada con un oráculo |
+
+Este reencuadre tiene consecuencias teóricas importantes. Conecta a AURA no con los agent frameworks (LangChain, DSPy), sino con:
+
+- **Efectos algebraicos** (Plotkin & Pretnar 2009): la deliberación es un efecto cedido a un handler, pero el handler es generativo (LLM) en lugar de estático.
+- **Condiciones/restarts de Common Lisp**: el programa señala una condición; el oráculo elige un restart---pero los restarts no están predefinidos sino generados dinámicamente.
+- **Arquitecturas cognitivas tipo Soar** (Laird et al. 1987): un impasse activa sub-goalificación automática. En AURA, un error o expect fallido activa deliberación cognitiva.
+- **Búsqueda con backtracking de Prolog**: la ejecución explora alternativas cuando un camino falla, pero las alternativas son propuestas por un oráculo en lugar de enumeradas estáticamente.
+
+Este posicionamiento teórico se desarrolla formalmente en la Sección 4.
+
+### 1.4 Contribuciones
 
 Este reporte hace las siguientes afirmaciones, cada una respaldada por evidencia de implementación y posicionada contra la literatura relevada:
 
-1. **Goals como expresiones de runtime evaluadas continuamente** (Sección 3.1). Ningún lenguaje BDI existente trata los goals como expresiones en el lenguaje anfitrión evaluadas durante la ejecución. El `GoalDef.check: Option<Expr>` de AURA permite monitoreo continuo de goals a granularidad arbitraria, distinto de los átomos simbólicos de AgentSpeak, las fórmulas lógicas de GOAL, y los maintain goals basados en callbacks de Jadex.
+1. **Ejecución como selección de trayectoria restringida** (Sección 4). Proponemos un modelo operacional donde ejecutar un programa no es evaluar una función, sino buscar una trayectoria válida en un espacio de estados restringido por goals e invariantes. El LLM actúa como oráculo de selección, no como herramienta heurística. Esta formalización eleva a AURA de "sistema interesante" a "modelo de programación", conectándolo con semánticas operacionales no deterministas, planificación, y model checking.
 
 2. **Deliberación cognitiva como semántica del lenguaje** (Sección 3.2). Ningún lenguaje existente define la deliberación como una operación semántica que puede modificar el estado de ejecución, reescribir código, o hacer backtrack con ajustes. El trait `CognitiveRuntime` (`observe`, `deliberate`, `check_goals`, `is_active`) es invocado por la VM durante la evaluación de expresiones, no como una capa de monitoreo externa.
 
-3. **Álgebra de intervención de cinco modos** (Sección 3.3). El enum `CognitiveDecision` define cinco intervenciones estructuralmente tipadas (`Continue`, `Override(Value)`, `Fix{new_code, explanation}`, `Backtrack{checkpoint, adjustments}`, `Halt(error)`), proporcionando un espacio de intervención más rico que cualquier sistema de auto-reparación existente.
+3. **Backtracking con ajustes como primitiva semántica** (Sección 3.3). La intervención `Backtrack{checkpoint, adjustments}` convierte al programa en un grafo navegable de estados donde la ejecución puede retroceder y explorar trayectorias alternativas. Esto no es una feature---es la semántica. Combina backtracking cronológico (Prolog), memoria transaccional (STM), y re-planificación BDI, pero con un oráculo generativo que propone ajustes.
 
-4. **Adaptación acotada por invariantes** (Sección 3.4). Los invariantes y goals declarados por el desarrollador restringen todas las modificaciones generadas por el LLM. La función `validate_fix()` verifica que los fixes sean parseables, respeten límites de tamaño, preserven todos los goals declarados, y no introduzcan goals nuevos. Este es un patrón de diseño novedoso: restricciones declaradas por el desarrollador sobre la modificación automatizada de programas.
+4. **Goals como expresiones de runtime evaluadas continuamente** (Sección 3.1). Ningún lenguaje BDI existente trata los goals como expresiones en el lenguaje anfitrión evaluadas durante la ejecución. El `GoalDef.check: Option<Expr>` de AURA permite monitoreo continuo de goals a granularidad arbitraria, distinto de los átomos simbólicos de AgentSpeak, las fórmulas lógicas de GOAL, y los maintain goals basados en callbacks de Jadex.
 
-5. **Abstracción cognitiva de cero overhead** (Sección 3.5). Cuando `is_active()` retorna `false` (el `NullCognitiveRuntime`), todas las verificaciones cognitivas son no-ops. Los programas sin características cognitivas se ejecutan con rendimiento idéntico al de un runtime no cognitivo.
+5. **Álgebra de intervención de cinco modos** (Sección 3.3). El enum `CognitiveDecision` define cinco intervenciones estructuralmente tipadas (`Continue`, `Override(Value)`, `Fix{new_code, explanation}`, `Backtrack{checkpoint, adjustments}`, `Halt(error)`), proporcionando un espacio de intervención más rico que cualquier sistema de auto-reparación existente.
+
+6. **Adaptación acotada por invariantes** (Sección 3.4). Los invariantes y goals declarados por el desarrollador restringen todas las modificaciones generadas por el LLM. La función `validate_fix()` verifica que los fixes sean parseables, respeten límites de tamaño, preserven todos los goals declarados, y no introduzcan goals nuevos.
+
+7. **Abstracción cognitiva de cero overhead** (Sección 3.5). Cuando `is_active()` retorna `false` (el `NullCognitiveRuntime`), todas las verificaciones cognitivas son no-ops. Los programas sin características cognitivas se ejecutan con rendimiento idéntico al de un runtime no cognitivo.
 
 ---
 
@@ -373,7 +404,33 @@ Comparación con modelos de intervención existentes:
 | `Backtrack{checkpoint, adjustments}` | Restaurar la VM al checkpoint nombrado, aplicar ajustes a variables, continuar desde ese punto | **Sin precedente** en APR o frameworks LLM |
 | `Halt(error)` | Detener ejecución con explicación | Común (todos los sistemas) |
 
-La intervención `Backtrack` es particularmente novedosa. A diferencia de las herramientas APR que deben re-ejecutar desde cero, y a diferencia de la supervisión de Erlang que reinicia desde el estado inicial, AURA puede restaurar a cualquier checkpoint nombrado *con ajustes*---el LLM especifica qué variables modificar antes de reanudar. Esto permite re-ejecución parcial con correcciones informadas, una capacidad sin precedentes en la literatura.
+#### Backtrack como primitiva semántica central
+
+La intervención `Backtrack` no es una feature auxiliar---es la pieza que transforma la semántica de AURA. Con backtracking con ajustes, **el programa deja de ser una secuencia y se convierte en un grafo navegable en runtime:**
+
+```mermaid
+graph LR
+    S0["Estado₀<br/>inicio"] --> S1["Estado₁<br/>checkpoint A"]
+    S1 --> S2["Estado₂<br/>checkpoint B"]
+    S2 --> S3["Estado₃<br/>error/fallo"]
+    S3 -.->|"Backtrack(A, ajustes₁)"| S1
+    S1 --> S4["Estado₄<br/>trayectoria alternativa"]
+    S4 --> S5["Estado₅<br/>éxito"]
+    S3 -.->|"Backtrack(B, ajustes₂)"| S2
+    S2 --> S6["Estado₆<br/>otra alternativa"]
+
+    style S3 fill:#f8d7da
+    style S5 fill:#d4edda
+```
+
+A diferencia de las herramientas APR que deben re-ejecutar desde cero, y a diferencia de la supervisión de Erlang que reinicia desde el estado inicial, AURA puede restaurar a cualquier checkpoint nombrado *con ajustes*---el LLM especifica qué variables modificar antes de reanudar. Esto permite re-ejecución parcial con correcciones informadas.
+
+Lo que hace esto semánticamente radical es que la ejecución ya no avanza monótonamente. El programa puede:
+- **Retroceder** a un estado anterior (como Prolog)
+- **Ajustar variables** antes de reanudar (a diferencia de Prolog, que solo hace backtracking puro)
+- **Elegir a qué checkpoint retroceder** (navegación en el grafo, no solo backtracking cronológico)
+
+Esto es más cercano a *reversible computing* parcial y a planificación online que a los modelos de ejecución tradicionales. La implicación teórica se desarrolla en la Sección 4.
 
 ### 3.4 Seguridad: adaptación acotada por invariantes
 
@@ -526,9 +583,191 @@ Crucialmente, las decisiones `Backtrack` se manejan *dentro* de una sola ejecuci
 
 ---
 
-## 4. Posicionamiento frente al estado del arte
+## 4. Modelo formal: Ejecución como selección de trayectoria restringida
 
-### 4.1 Comparación integral
+Esta sección presenta el enmarcamiento teórico central de AURA. Argumentamos que la VM cognitiva de AURA implementa un modelo operacional fundamentalmente diferente al de los lenguajes convencionales, y que este modelo es formalmente describible---no como heurística asistida por IA, sino como semántica operacional no determinista con oráculo.
+
+### 4.1 El programa como espacio de trayectorias
+
+En un lenguaje convencional, un programa *P* con entrada *x* define una función:
+
+```
+eval(P, x) → v | ⊥
+```
+
+La semántica es determinista: dado el mismo programa y la misma entrada, la ejecución produce el mismo valor *v* o diverge/falla (*⊥*). No hay ambigüedad sobre qué significa "ejecutar P".
+
+En AURA, un programa *P* define algo diferente: un **espacio de trayectorias de ejecución** *T(P)*. Cada trayectoria *τ ∈ T(P)* es una secuencia de estados de la VM:
+
+```
+τ = ⟨σ₀, σ₁, ..., σₙ⟩
+```
+
+donde cada estado *σᵢ* incluye el entorno de variables, la pila de llamadas, los checkpoints disponibles, y el buffer de observaciones. Las transiciones entre estados son de dos tipos:
+
+- **Transiciones deterministas** (*σᵢ →ᵈ σᵢ₊₁*): las reglas de evaluación estándar del lenguaje (aritmética, llamadas a función, let-bindings, etc.)
+- **Transiciones no deterministas** (*σᵢ →ⁿ σⱼ*): intervenciones del oráculo cognitivo que pueden:
+  - Inyectar un valor (`Override`)
+  - Modificar el código y reiniciar (`Fix`)
+  - Retroceder a un estado anterior con ajustes (`Backtrack`)
+  - Detener la ejecución (`Halt`)
+
+Un programa AURA sin runtime cognitivo tiene solo transiciones deterministas---es un lenguaje convencional (v1 behavior). Con runtime cognitivo, el espacio de trayectorias se expande a todas las posibles intervenciones del oráculo.
+
+### 4.2 Restricciones: goals e invariantes como superficie de constraint
+
+No todas las trayectorias en *T(P)* son válidas. Los goals e invariantes declarados por el desarrollador definen una **superficie de restricción** *C* que acota el espacio:
+
+```
+T_válidas(P) = { τ ∈ T(P) | ∀ σᵢ ∈ τ : invariantes(σᵢ) ∧ goals_check(σᵢ) }
+```
+
+Los invariantes son restricciones duras: toda trayectoria válida debe satisfacerlos en cada estado. Los goals con `check` son restricciones evaluadas periódicamente: si fallan, el oráculo es invocado para corregir el rumbo.
+
+Esto tiene una consecuencia crucial: **el desarrollador no programa el comportamiento, programa las restricciones sobre el espacio de comportamientos**. Los goals y los invariantes son la especificación; el código es un intento de solución que el oráculo puede ajustar.
+
+### 4.3 El oráculo cognitivo
+
+En la teoría de la computación, un **oráculo** es una caja negra que responde consultas durante la computación (Turing 1939). En AURA, el LLM funciona como oráculo de selección de trayectoria:
+
+```
+oracle(σᵢ, trigger, contexto) → decisión ∈ CognitiveDecision
+```
+
+El oráculo recibe:
+- El estado actual *σᵢ* (variables, checkpoints, observaciones)
+- El disparador (error técnico, expect fallido, goal desalineado, reason explícito)
+- El contexto acumulado (historial de observaciones, traza de razonamiento, goals, invariantes)
+
+Y retorna una decisión que selecciona la siguiente transición. Lo que hace al oráculo de AURA diferente de una herramienta heurística es que su intervención está **estructuralmente restringida**:
+
+1. Solo puede elegir entre cinco tipos de intervención (el álgebra de `CognitiveDecision`)
+2. Los fixes propuestos deben pasar `validate_fix()` (parseable, goals preservados, tamaño acotado)
+3. Los backtracks solo pueden ir a checkpoints existentes
+4. Los límites de seguridad (`CognitiveSafetyConfig`) acotan el número de deliberaciones
+
+Esto eleva al LLM de "heurística externa" a **oráculo en un sistema formal**. No decide arbitrariamente---selecciona una trayectoria válida dentro de un espacio restringido.
+
+Un revisor de PL podría decir:
+
+> "Esto es un runtime con heurística externa."
+
+Pero con este enmarcamiento, la respuesta es:
+
+> "Es un modelo operacional no determinista con oráculo, donde las restricciones declarativas (goals, invariantes) acotan formalmente el espacio de intervención."
+
+### 4.4 El grafo de estados navegable
+
+La intervención `Backtrack{checkpoint, adjustments}` es la pieza que distingue a AURA de un simple "retry con IA". Con backtracking, el espacio de ejecución no es una secuencia lineal sino un **grafo dirigido acíclico** (DAG) de estados:
+
+```mermaid
+graph TD
+    S0["σ₀: inicio"] --> S1["σ₁: checkpoint A"]
+    S1 --> S2["σ₂: checkpoint B"]
+    S2 --> S3["σ₃: error"]
+    S3 -.->|"Backtrack(A, {x:=42})"| S1b["σ₁': A con x=42"]
+    S1b --> S4["σ₄: nueva trayectoria"]
+    S4 --> S5["σ₅: éxito"]
+    S3 -.->|"Backtrack(B, {y:=true})"| S2b["σ₂': B con y=true"]
+    S2b --> S6["σ₆: otra trayectoria"]
+
+    style S3 fill:#f8d7da
+    style S5 fill:#d4edda
+    style S1b fill:#cce5ff
+    style S2b fill:#cce5ff
+```
+
+Cada backtrack crea un nuevo estado (*σ₁'* no es *σ₁*---tiene ajustes). La ejecución explora el grafo buscando una trayectoria que llegue a un estado final válido. Esto es formalmente análogo a:
+
+| Modelo | Búsqueda | Alternativas | Ajustes |
+|--------|----------|-------------|---------|
+| Prolog | Backtracking cronológico | Cláusulas estáticas | No |
+| Model checking | Exploración exhaustiva de estados | Transiciones del modelo | No |
+| Planificación (STRIPS) | Búsqueda en espacio de planes | Acciones predefinidas | No |
+| **AURA** | **Backtracking selectivo** | **Generadas por oráculo** | **Sí (ajustes a variables)** |
+
+La novedad de AURA es que las alternativas no están predefinidas (como en Prolog) ni enumeradas exhaustivamente (como en model checking), sino **generadas dinámicamente** por un oráculo que entiende el contexto semántico del programa.
+
+### 4.5 Corrección: intención preservada vs. intención satisfecha
+
+Este modelo plantea una pregunta fundamental que no debe esquivarse:
+
+> **¿Qué significa que un programa AURA sea correcto?**
+
+Hoy, AURA garantiza **seguridad** (safety) vía invariantes: ninguna intervención del oráculo puede violar un invariant declarado. Y garantiza **preservación de goals**: ningún fix puede agregar o eliminar goals.
+
+Pero seguridad no es corrección. Considérese:
+
+```
+goal "mantener usuarios activos en el sistema"
+invariant len(usuarios) >= 0
+```
+
+Si el sistema detecta un problema con usuarios inactivos, el oráculo podría proponer:
+
+- **Fix A**: filtrar la lista, manteniendo solo usuarios activos → *satisface* el goal
+- **Fix B**: eliminar el campo `activo` de todos los usuarios → *satisface* el goal técnicamente
+- **Fix C**: establecer `activo = true` para todos → *satisface* el goal degeneradamente
+
+Los tres satisfacen el goal y respetan el invariant. Pero solo el Fix A **preserva la intención** del desarrollador.
+
+Esto revela una distinción teórica fundamental:
+
+- **Intención satisfecha**: el goal evalúa a `true` después de la intervención
+- **Intención preservada**: la intervención es coherente con lo que el desarrollador *quiso decir* con el goal
+
+AURA hoy opera en el nivel de *intención satisfecha*. Moverse a *intención preservada* requiere un modelo de especificación de intenciones más rico que las expresiones booleanas---posiblemente conectando con la semántica de intenciones de Cohen & Levesque (1990) o con verificación formal de propiedades temporales.
+
+Este es un problema abierto deliberado: reconocerlo es más honesto y más productivo que pretender que los invariantes resuelven la corrección.
+
+### 4.6 Relación con modelos formales existentes
+
+El modelo de ejecución de AURA puede formalizarse en varios frameworks:
+
+**Como semántica operacional no determinista con oráculo:**
+
+```
+            σᵢ, e ⇓ v
+         ──────────────── [EVAL-DET]    (transición determinista)
+            σᵢ →ᵈ σᵢ₊₁
+
+            σᵢ, e ⇓ ⊥    oracle(σᵢ, ⊥) = Override(v')
+         ──────────────────────────────────── [EVAL-ORACLE]
+            σᵢ →ⁿ σᵢ₊₁[result := v']
+
+            σᵢ, e ⇓ ⊥    oracle(σᵢ, ⊥) = Backtrack(cp, adj)
+         ──────────────────────────────────── [EVAL-BACKTRACK]
+            σᵢ →ⁿ restore(cp) ⊕ adj
+```
+
+**Como handler de efectos algebraicos:**
+
+```
+            effect CognitiveAssistance : Trigger → Decision
+
+            handle (eval program) with
+              | CognitiveAssistance trigger →
+                  let decision = llm_deliberate(trigger, context) in
+                  resume_with decision
+```
+
+La diferencia clave con los handlers de efectos algebraicos clásicos (Plotkin & Pretnar 2009) es que el handler es **generativo**: no está definido estáticamente como una función, sino que produce respuestas novedosas vía el LLM. Esto extiende el modelo de efectos algebraicos de handlers deterministas a handlers con oráculo.
+
+**Como sistema de planificación online:**
+
+La ejecución de AURA puede verse como un planificador que:
+1. Ejecuta el plan (programa) paso a paso
+2. Monitorea el estado contra goals/invariantes
+3. Re-planifica cuando el plan falla (deliberación)
+4. Puede volver atrás y ajustar (backtrack)
+
+Esto conecta directamente con arquitecturas 3T (Gat 1998) y planificación HTN (Nau et al. 2003), pero donde el planificador es un LLM con acceso al estado de ejecución completo.
+
+---
+
+## 5. Posicionamiento frente al estado del arte
+
+### 5.1 Comparación integral
 
 *Tabla 3: AURA posicionado contra sistemas representativos de cada línea de investigación*
 
@@ -545,7 +784,7 @@ Crucialmente, las decisiones `Backtrack` se manejan *dentro* de una sola ejecuci
 | **Intención del desarrollador** | Casos de test | Casos de test | Código Python | Restricciones arq. | Goals BDI | **`goal`, `expect`, `invariant`** |
 | **Integración LLM** | Ninguna | API externa | API externa | Ninguna | Ninguna | **Trait de runtime de primera clase** |
 
-### 4.2 La brecha tripartita
+### 5.2 La brecha tripartita
 
 AURA cierra una brecha en la intersección de tres preocupaciones previamente separadas:
 
@@ -579,100 +818,168 @@ graph TD
 
 3. **Ningún sistema actual** impone invariantes de seguridad sobre las adaptaciones generadas por LLM a nivel del lenguaje---donde los invariantes se declaran en la sintaxis del programa, se validan por el parser, y se aplican antes de que cualquier fix propuesto por el LLM sea aplicado.
 
-### 4.3 Afirmación formal de novedad
+### 5.3 Afirmación formal de novedad
 
-> AURA incorpora un ciclo cognitivo (observar-razonar-ajustar-continuar) como un mecanismo de runtime de primera clase dentro de la semántica de ejecución del lenguaje, donde (1) la fase "razonar" invoca un modelo de lenguaje grande externo con contexto de ejecución reificado, (2) la fase "ajustar" aplica modificaciones verificadas en tipo al código en ejecución, y (3) el ciclo opera a granularidad arbitraria---desde expresiones individuales hasta cuerpos de funciones completos---en lugar de solo en fronteras de proceso (Erlang), fronteras de transacción (STM), o puntos de unión predefinidos (AOP).
+> AURA implementa un modelo operacional donde ejecutar un programa es buscar una trayectoria válida en un espacio de estados restringido por goals e invariantes declarados por el desarrollador, donde (1) un oráculo cognitivo (LLM con acceso al estado de ejecución reificado) selecciona trayectorias cuando la ejecución determinista no puede continuar, (2) las intervenciones del oráculo están estructuralmente tipadas en un álgebra de cinco modos (Continue, Override, Fix, Backtrack, Halt), (3) el backtracking con ajustes convierte al programa en un grafo navegable de estados---no una secuencia---, y (4) las restricciones declarativas (goals, invariantes) acotan formalmente el espacio de intervención del oráculo, distinguiendo a AURA de un sistema con "heurística IA externa" y posicionándolo como un modelo operacional no determinista con oráculo.
 
-### 4.4 Lo que no es novedoso
+### 5.4 Lo que no es novedoso
 
 La honestidad académica requiere identificar sobre qué construye AURA en lugar de inventar:
 
 - La arquitectura BDI (Rao & Georgeff 1991, 1995; Bratman 1987)
 - Ciclos auto-adaptativos MAPE-K (Kephart & Chess 2003)
 - Mecanismos de checkpoint/rollback (Shavit & Touitou 1995)
+- Backtracking cronológico (Prolog; Colmerauer & Roussel 1993)
 - Reparación de código basada en LLM (Xia & Zhang 2023; Le Goues et al. 2012)
 - Hot code reloading (Armstrong 2003)
 - Sistemas de módulos basados en capacidades (cf. modelo de capacidades de SARL)
 - Sistemas de condiciones/restarts (Common Lisp)
 - Verificación en runtime (Leucker & Schallhart 2009)
+- Semántica operacional (Plotkin 1981)
+- Computación con oráculos (Turing 1939)
 
-La contribución de AURA es la *síntesis*: integrar todo lo anterior en un mecanismo de runtime unificado diseñado desde cero para esta interacción.
+La contribución de AURA no es ninguna de estas piezas individualmente. Es el modelo que emerge de su síntesis: una máquina abstracta donde la continuidad del programa es negociada entre la semántica determinista del lenguaje y un oráculo generativo, dentro de un espacio restringido por intenciones declaradas.
 
 ---
 
-## 5. Ejemplo desarrollado
+## 6. Ejemplo desarrollado: Auto-reparación en acción
 
-El siguiente programa AURA demuestra la ejecución cognitiva. Los comentarios anotan lo que el runtime cognitivo hace en cada punto.
+El siguiente programa AURA demuestra la ejecución cognitiva con auto-reparación real. A diferencia de un ejemplo trivial donde todo funciona, este programa tiene un **bug intencional** que el runtime cognitivo detecta y repara.
+
+### 6.0 El escenario: Monitor de sensores IoT
+
+Un sistema lee sensores de temperatura, detecta anomalías térmicas, y genera alertas. El código usa `umbral_temp` para definir el umbral de anomalía---pero esa variable **nunca se define**. Sin runtime cognitivo, el programa crashea. Con él, el error se detecta, se delibera un fix, se aplica, y se reintenta.
 
 ```aura
-# Demo del runtime cognitivo
-# Ejecutar con: aura run --cognitive --provider mock examples/cognitive_demo.aura
-
 +http +json
 
-# El desarrollador declara su intención
-goal "procesar datos de usuario correctamente"
-goal "todos los usuarios deben tener nombres válidos" check usuarios != nil
+goal "monitorear todos los sensores"
+goal "detectar anomalias termicas" check lecturas != nil
 
-# Definición de tipo con anotaciones de validación
-@Usuario {
-    id :i
-    nombre :s
-    email :s
-}
+invariant len(lecturas) >= 0
 
-# Función de fuente de datos
-obtener_usuarios() = [{id: 1, nombre: "Alicia", email: "alicia@ejemplo.com"}, {id: 2, nombre: "Bruno", email: "bruno@ejemplo.com"}, {id: 3, nombre: "Carla", email: "carla@ejemplo.com"}]
+# Simula lecturas de sensores IoT
+obtener_lecturas() = [{sensor: "TH-01", temp: 22.5, humedad: 45},
+                      {sensor: "TH-02", temp: 38.7, humedad: 30},
+                      {sensor: "TH-03", temp: 21.0, humedad: 55}]
 
-# Función de formateo
-formatear_usuario(u) = "Usuario {u.id}: {u.nombre} <{u.email}>"
+# Bug intencional: umbral_temp NO esta definido
+es_anomalia(temp) = temp > umbral_temp
 
-main = : usuarios = obtener_usuarios(); observe usuarios; expect len(usuarios) > 0 "debería haber usuarios"; estrategia = reason "tenemos usuarios, procesamos todos o filtramos?"; primero = first(usuarios); formatear_usuario(primero)
+# Formatea una alerta para un sensor
+formatear_alerta(s) = "ALERTA: sensor {s.sensor} reporta {s.temp}C"
+
+# Punto de entrada principal
+main = : lecturas = obtener_lecturas();
+         observe lecturas;
+         expect len(lecturas) > 0 "sin datos de sensores";
+         s1 = first(lecturas);
+         s2 = first(tail(lecturas));
+         print("Sensor {s1.sensor}: {s1.temp}C");
+         print("Sensor {s2.sensor}: {s2.temp}C");
+         a2 = es_anomalia(s2.temp);
+         expect a2 "se esperaba anomalia en {s2.sensor}";
+         alerta = formatear_alerta(s2);
+         print(alerta);
+         accion = reason "sensor {s2.sensor} en {s2.temp}C, que accion tomar?";
+         print("Analisis completo");
+         s2.temp
 ```
 
-### 5.1 Traza de ejecución bajo runtime cognitivo
+### 6.1 Ejecución sin runtime cognitivo
 
-Al ejecutarse con `aura run --cognitive --provider claude examples/cognitive_demo.aura`:
+```bash
+$ aura run examples/cognitive_demo.aura
+Sensor TH-01: 22.5C
+Sensor TH-02: 38.7C
+Runtime error: Variable no definida: umbral_temp
+```
+
+El programa imprime los dos primeros sensores, llama a `es_anomalia(38.7)`, que evalúa `temp > umbral_temp`. Como `umbral_temp` no está definida, crashea. Comportamiento estándar de cualquier lenguaje.
+
+### 6.2 Ejecución con runtime cognitivo
+
+```bash
+$ aura run --cognitive --provider mock examples/cognitive_demo.aura
+Cognitive mode: provider=mock
+Sensor TH-01: 22.5C
+Sensor TH-02: 38.7C
+Sensor TH-01: 22.5C
+Sensor TH-02: 38.7C
+ALERTA: sensor TH-02 reporta 38.7C
+Analisis completo
+38.7
+  [1 fix(es) applied, 1 retries]
+```
+
+### 6.3 Traza detallada del ciclo cognitivo
+
+Lo que sucede internamente ilustra el modelo de selección de trayectoria (Sección 4):
 
 ```mermaid
 sequenceDiagram
+    participant R as Runner
     participant P as Parser
     participant VM as VM
-    participant CP as Checkpoints
     participant CR as CognitiveRuntime
-    participant LLM as LLM
+    participant LLM as MockProvider
 
-    P->>VM: cargar programa (goals, funciones, main)
-    Note over VM: Goals registrados, CheckpointManager inicializado
+    Note over R: Intento 0 (con cognitive)
 
-    VM->>VM: eval: usuarios = obtener_usuarios()
-    Note over VM: usuarios = List[3 registros Usuario]
-
-    VM->>CP: save("observe_usuarios", vars, step=3)
-    VM->>CR: observe(ValueChanged{usuarios: Nil → List[...]})
+    R->>P: parsear fuente original
+    P->>VM: cargar programa
+    VM->>VM: eval: lecturas = obtener_lecturas()
+    VM->>CR: observe(ValueChanged{lecturas: Nil → List[3]})
     VM->>CR: check_goals()
-    Note over CR: "usuarios != nil" → true ✓
+    Note over CR: "lecturas != nil" → true ✓
 
-    VM->>VM: eval: expect len(usuarios) > 0
-    Note over VM: condición: true ✓
-    VM->>CR: observe(ExpectEvaluated{result: true})
+    VM->>VM: eval: es_anomalia(38.7)
+    VM->>VM: eval: temp > umbral_temp
+    Note over VM: RuntimeError: Variable no definida: umbral_temp
 
-    VM->>CR: deliberate(ExplicitReason{question: "..."})
-    CR->>LLM: pregunta + goals + observaciones
-    LLM-->>CR: Override("procesar_todos")
-    CR-->>VM: estrategia = "procesar_todos"
+    VM->>CR: deliberate(TechnicalError{error})
+    CR->>LLM: error + fuente + goals + observaciones
+    Note over LLM: Detecta "Variable no definida: umbral_temp"
+    Note over LLM: umbral → valor 35.0
+    Note over LLM: Genera fix: source.replace("umbral_temp", "35.0")
+    LLM-->>CR: Fix{new_code, explanation}
+    CR-->>VM: Fix → pending_fixes
 
-    VM->>VM: eval: primero = first(usuarios)
-    VM->>VM: eval: formatear_usuario(primero)
-    Note over VM: "Usuario 1: Alicia <alicia@ejemplo.com>"
+    Note over R: pending_fixes no vacío → validar fix
+    R->>R: validate_fix(new_code, goals, safety)
+    Note over R: ✓ Parseable, goals preservados, tamaño OK
+    R->>R: current_source = new_code
+
+    Note over R: Intento 1 (sin cognitive, fuente reparado)
+
+    R->>P: parsear fuente reparado
+    Note over P: es_anomalia(temp) = temp > 35.0
+    P->>VM: cargar programa reparado
+    VM->>VM: eval completo sin errores
+    Note over VM: 38.7 > 35.0 → true ✓
+    VM-->>R: Ok(38.7)
+
+    Note over R: Retornar CognitiveRunResult<br/>value=38.7, fixes=1, retries=1
 ```
 
-### 5.2 Contrafactual: escenario de desalineación de goal
+### 6.4 Lo que demuestra este ejemplo
 
-Supongamos que `obtener_usuarios()` retornó una lista incluyendo un usuario con `nombre: nil`. El goal `check usuarios != nil` aún pasaría (la lista misma no es nil), pero imaginemos un goal más preciso:
+Este ejemplo no es un escenario artificial---es la demostración concreta del modelo teórico de la Sección 4:
+
+1. **El programa define un espacio de trayectorias, no un comportamiento fijo.** La trayectoria "evaluar `temp > umbral_temp` → crash" no es la única posible. El runtime cognitivo encuentra una trayectoria alternativa: reemplazar `umbral_temp` con `35.0` y reintentar.
+
+2. **El error es un punto de bifurcación, no un crash.** En la Sección 4.1, definimos que un error activa una transición no determinista (*σᵢ →ⁿ σⱼ*). Aquí el `RuntimeError` activa `deliberate(TechnicalError)`, que produce un `Fix`---una trayectoria alternativa.
+
+3. **Las restricciones acotan la intervención.** El fix propuesto pasa por `validate_fix()`: debe parsear como AURA válido, preservar los dos goals, y no exceder 50 líneas. No es una intervención arbitraria---es una selección dentro del espacio restringido.
+
+4. **El oráculo es semánticamente informado.** El MockProvider no elige `35.0` al azar: reconoce que `umbral` es un nombre de variable que implica un valor de umbral numérico. Un provider real (Claude, Ollama) haría un razonamiento aún más rico.
+
+### 6.5 Contrafactual: escenario de backtracking
+
+Imaginemos un goal más preciso con backtracking. Si `obtener_lecturas()` retornara un sensor con datos corruptos:
 
 ```aura
-goal "todos los nombres deben ser no vacíos" check for(u in usuarios) : u.nombre != nil
+goal "todos los sensores deben tener lecturas válidas" check for(s in lecturas) : s.temp > 0
 ```
 
 Cuando la verificación del goal falla:
@@ -684,33 +991,49 @@ sequenceDiagram
     participant CR as CognitiveRuntime
     participant LLM as LLM
 
-    VM->>CP: save("observe_usuarios", vars, step=3)
+    VM->>CP: save("observe_lecturas", vars, step=3)
     VM->>CR: check_goals()
-    Note over CR: "for(u in usuarios): u.nombre != nil" → false ✗
+    Note over CR: "for(s in lecturas): s.temp > 0" → false ✗
 
     CR->>LLM: GoalMisalignment + contexto + checkpoints
-    LLM-->>CR: Backtrack{checkpoint: "observe_usuarios",<br/>adjustments: [("usuarios", lista_filtrada)]}
+    LLM-->>CR: Backtrack{checkpoint: "observe_lecturas",<br/>adjustments: [("lecturas", lista_filtrada)]}
 
     CR-->>VM: Backtrack{...}
-    VM->>CP: restore("observe_usuarios")
+    VM->>CP: restore("observe_lecturas")
     Note over VM: variables restauradas al paso 3
-    VM->>VM: aplica ajuste: usuarios = [solo válidos]
+    VM->>VM: aplica ajuste: lecturas = [solo sensores válidos]
     VM->>VM: continúa ejecución con datos corregidos ✓
 ```
 
-Este es el poder del backtracking basado en checkpoints con ajustes informados por LLM: el programa no crashea, no reinicia desde cero, y no aplica una estrategia predefinida frágil. El LLM entiende el goal ("todos los nombres deben ser no vacíos"), examina los datos, y propone una corrección dirigida.
+Este es el poder del backtracking con ajustes: el programa no crashea, no reinicia desde cero, no aplica una estrategia predefinida frágil. El oráculo entiende el goal, examina los datos, y propone una corrección dirigida---navegando el grafo de estados (Sección 4.4) hacia una trayectoria válida.
 
 ---
 
-## 6. Discusión
+## 7. Discusión
 
-### 6.1 Enmarcamiento teórico
+### 7.1 Enmarcamiento teórico: del sistema al modelo
 
-El runtime cognitivo de AURA puede formalizarse a través de múltiples lentes teóricos:
+La Sección 4 presentó el modelo formal de ejecución como selección de trayectoria restringida. Aquí situamos ese modelo en el contexto más amplio de la teoría de lenguajes de programación.
 
-**Como un handler de efectos algebraicos** (Plotkin & Pretnar 2009): las primitivas cognitivas (`observe`, `reason`, `expect` ante fallo) son efectos cedidos por la computación. El `CognitiveRuntime` es el handler que interpreta estos efectos. La novedad clave: el handler no es una función definida estáticamente sino un LLM que razona dinámicamente.
+**El salto clave.** AURA pasó de ser un *sistema interesante* a un *modelo de programación* cuando reconocimos que:
 
-**Como una instancia MAPE-K** (Kephart & Chess 2003): `observe` = Monitorear, clasificación de `DeliberationTrigger` = Analizar, deliberación del LLM = Planificar, aplicación de `CognitiveDecision` = Ejecutar, traza de `ReasoningEpisode` = Conocimiento. La novedad: todas las fases están embebidas en el runtime del lenguaje, no superpuestas externamente.
+- El programa no define el comportamiento → define el espacio de comportamientos permitidos
+- La ejecución no es evaluación → es búsqueda de trayectoria válida
+- El LLM no es una herramienta heurística → es un oráculo en un sistema formal
+- Backtrack no es una feature → es la semántica
+
+Este reencuadre tiene una consecuencia práctica: AURA no compite con DSPy, LMQL, o LangChain (que son herramientas para *usar* LLMs). AURA compete con modelos de computación---con la pregunta de qué significa ejecutar un programa en presencia de incertidumbre.
+
+**Mapeo a frameworks formales existentes:**
+
+| Framework formal | Mapeo en AURA | Extensión de AURA |
+|---|---|---|
+| Efectos algebraicos (Plotkin & Pretnar 2009) | Primitivas cognitivas = efectos; `CognitiveRuntime` = handler | Handler generativo (LLM) vs. estático |
+| MAPE-K (Kephart & Chess 2003) | `observe`=M, `Trigger`=A, LLM=P, `Decision`=E, `Episode`=K | Embebido en la VM, no capa externa |
+| Condiciones/restarts (Common Lisp) | Errors + expects = condiciones; `CognitiveDecision` = restarts | Restarts generados dinámicamente, no predefinidos |
+| Semántica de Prolog | Backtrack = backtracking cronológico | Con ajustes a variables + oráculo para elegir alternativas |
+| Planificación HTN (Nau et al. 2003) | Programa = plan; deliberación = re-planificación | Re-planificación informada por estado de ejecución completo |
+| Model checking | Espacio de estados + propiedades (goals/invariants) | Exploración guiada por oráculo, no exhaustiva |
 
 ```mermaid
 graph LR
@@ -727,9 +1050,7 @@ graph LR
     end
 ```
 
-**Como un sistema generalizado de condiciones/restarts**: las condiciones de Common Lisp señalan errores; los restarts proporcionan opciones de recuperación. AURA generaliza ambos: cualquier evento de ejecución (no solo errores) puede disparar deliberación, y las opciones de recuperación son generadas dinámicamente por un LLM en lugar de ser predefinidas por el programador.
-
-### 6.2 El runtime como arquitectura cognitiva
+### 7.2 El runtime como arquitectura cognitiva
 
 Al mapearse a la teoría de arquitecturas cognitivas, el runtime de AURA implementa los componentes esenciales identificados por Newell (1990) y arquitecturas subsiguientes:
 
@@ -743,35 +1064,45 @@ Al mapearse a la teoría de arquitecturas cognitivas, el runtime de AURA impleme
 
 Esto convierte a AURA, hasta donde sabemos, en **el primer runtime de lenguaje de programación que es en sí mismo una arquitectura cognitiva**---en lugar de un lenguaje usado para implementar una.
 
-### 6.3 Limitaciones
+### 7.3 Limitaciones
+
+**Intención preservada vs. intención satisfecha (el problema central).** Como se discutió en la Sección 4.5, AURA hoy solo garantiza *intención satisfecha*: que los goals evalúen a `true` después de una intervención. Pero no garantiza *intención preservada*: que la intervención sea coherente con lo que el desarrollador quiso decir. Un goal "mantener usuarios activos" podría satisfacerse degeneradamente eliminando usuarios inactivos, cuando el desarrollador quería notificarles. Este es el problema conceptual más importante que enfrenta el modelo, y resolverlo probablemente requiere un lenguaje de especificación de intenciones más rico que expresiones booleanas---conectando con la semántica de intenciones de Cohen & Levesque (1990) o verificación de propiedades temporales (LTL/CTL).
+
+**Coherencia semántica de intervenciones.** Relacionado con lo anterior: hoy el sistema valida que una intervención sea *segura* (invariants OK, goals preservados, parseable), pero no que sea *semánticamente coherente*. El LLM puede producir una intervención que satisface todas las restricciones formales pero es absurda en contexto. La distinción entre "decisión semánticamente válida" y "heurística conveniente" requiere un modelo formal de validez de intervención que hoy no existe.
 
 **Latencia.** La deliberación con LLM añade segundos de latencia por invocación. AURA mitiga esto a través del `NullCognitiveRuntime` (cero overhead cuando las características cognitivas están inactivas) y observaciones agrupadas, pero las aplicaciones en tiempo real pueden necesitar límites de latencia más estrictos.
 
-**Determinismo.** Las respuestas del LLM son no determinísticas. Dos ejecuciones del mismo programa pueden seguir caminos diferentes. AURA registra la traza de `ReasoningEpisode` para análisis de reproducibilidad, pero las garantías formales requieren trabajo futuro.
+**Determinismo.** Las respuestas del LLM son no determinísticas. Dos ejecuciones del mismo programa pueden seguir trayectorias diferentes en el espacio de estados (Sección 4.4). AURA registra la traza de `ReasoningEpisode` para análisis de reproducibilidad, pero las garantías formales de convergencia requieren trabajo futuro.
 
-**Corrección de fixes generados por LLM.** La función `validate_fix()` verifica sintaxis, preservación de goals, y tamaño---pero no corrección semántica. Un fix que parsea correctamente y preserva goals aún puede introducir errores. La suite de tests proporciona validación adicional, pero la verificación formal de parches generados por LLM sigue siendo un problema de investigación abierto.
+**Corrección de fixes generados por LLM.** La función `validate_fix()` verifica sintaxis, preservación de goals, y tamaño---pero no corrección semántica. Un fix que parsea correctamente y preserva goals aún puede introducir errores lógicos. La verificación formal de parches generados por LLM sigue siendo un problema de investigación abierto.
 
 **Costo.** Cada deliberación incurre en costos de API del LLM. Los límites `max_deliberations` y `max_deliberations_without_progress` acotan esto, pero las estrategias de deliberación conscientes del costo son trabajo futuro.
 
-### 6.4 Direcciones futuras
+### 7.4 Direcciones futuras
 
-- **Semántica formal**: definir el ciclo cognitivo de AURA en un framework de semántica operacional, construyendo sobre la literatura de efectos algebraicos.
-- **Runtime cognitivo multi-agente**: múltiples LLMs con diferentes especializaciones (ej., uno para reparación de código, otro para razonamiento arquitectónico).
-- **Adaptación verificada**: usar métodos formales para demostrar que las adaptaciones dentro del espacio acotado por invariantes preservan propiedades especificadas.
-- **Deliberación consciente del costo**: estrategias que balanceen el costo de llamadas al LLM contra el beneficio esperado.
-- **Cognición colaborativa**: modos humano-en-el-ciclo donde el runtime presenta opciones en lugar de actuar autónomamente.
+- **Modelo formal de validez de intervención**: definir formalmente cuándo una intervención del oráculo es *semánticamente válida* y no solo *segura*. Conectar con la lógica de intenciones (Cohen & Levesque 1990) y verificación temporal.
+- **Semántica operacional completa**: formalizar las reglas de evaluación de AURA con oráculo como una semántica operacional de pasos pequeños con transiciones deterministas y no deterministas (Sección 4.6).
+- **Convergencia de trayectorias**: demostrar formalmente que, bajo ciertas condiciones sobre el oráculo y las restricciones, la búsqueda de trayectoria siempre termina (o acotar la probabilidad de no-terminación).
+- **Runtime cognitivo multi-agente**: múltiples oráculos con diferentes especializaciones, formalizados como un sistema de handlers compuestos.
+- **Adaptación verificada**: usar métodos formales para demostrar que las adaptaciones dentro del espacio acotado por invariantes preservan propiedades especificadas (model checking restringido).
+- **Deliberación consciente del costo**: estrategias que balanceen el costo de llamadas al oráculo contra el beneficio esperado (formalizable como problema de decisión parcialmente observable).
+- **Cognición colaborativa**: modos humano-en-el-ciclo donde el runtime presenta las trayectorias candidatas en lugar de seleccionar autónomamente.
 
 ---
 
-## 7. Conclusión
+## 8. Conclusión
 
-AURA demuestra que la deliberación cognitiva puede incorporarse en la semántica de lenguajes de programación, creando una nueva categoría de diseño de lenguajes. Al sintetizar conceptos de programación orientada a agentes (goals BDI), sistemas auto-adaptativos (monitoreo MAPE-K), y reparación de programas basada en LLM (corrección conversacional) en construcciones de primera clase del lenguaje con reglas de evaluación definidas, AURA abre un espacio de diseño que, hasta donde sabemos, no ha sido explorado en la literatura publicada.
+AURA demuestra que es posible construir un lenguaje de programación donde ejecutar un programa no significa evaluar una función, sino buscar una trayectoria válida en un espacio de estados restringido por intenciones declaradas, con un oráculo cognitivo que guía la búsqueda cuando la ejecución determinista no puede continuar.
 
-La idea clave es arquitectónica: el LLM no es una herramienta externa que procesa archivos fuente, sino un componente del runtime que participa en la ejecución---observando cambios en variables, evaluando goals, y tomando decisiones que se aplican inmediatamente dentro del flujo de ejecución. Los invariantes y goals declarados por el desarrollador restringen el espacio de adaptación, creando un contrato formalmente acotado entre la intención humana y el razonamiento de la máquina.
+Este es el resultado central del trabajo: **AURA no es un lenguaje con features de agentes. Es una máquina abstracta donde la continuidad del programa es negociada.** El programa define el espacio de comportamientos permitidos (goals, invariantes). La ejecución es búsqueda en ese espacio. El LLM es el oráculo que selecciona trayectorias. El backtracking con ajustes convierte al programa en un grafo navegable de estados.
 
-Los 244 tests de AURA, la implementación completa en Rust, y el modo de ejecución cognitiva funcional demuestran que este diseño no es meramente teórico sino prácticamente realizable. El `NullCognitiveRuntime` asegura cero overhead para programas no cognitivos, haciendo que las capacidades cognitivas sean puramente aditivas.
+Este reencuadre---de "primitivas sintácticas" a "modelo de ejecución"---es lo que distingue a AURA de los agent frameworks, las herramientas de auto-reparación, y los DSLs para LLMs. AURA no compite con LangChain o DSPy. Compite con la pregunta de qué significa ejecutar un programa en presencia de incertidumbre.
 
-Si este paradigma escala a sistemas de producción, cómo pueden establecerse garantías formales de corrección para adaptaciones generadas por LLM, y qué patrones de experiencia de desarrollador emergen cuando los programas pueden razonar sobre su propia ejecución---estas son preguntas que la existencia de AURA hace concretas y tratables.
+La implementación en Rust (244+ tests, modo cognitivo funcional con auto-reparación demostrada) prueba que el modelo es realizable. El `NullCognitiveRuntime` asegura cero overhead para programas no cognitivos, haciendo que las capacidades cognitivas sean puramente aditivas.
+
+Los problemas abiertos son significativos: la distinción entre intención satisfecha e intención preservada (Sección 4.5), la coherencia semántica de las intervenciones del oráculo (Sección 7.3), y la formalización completa de la semántica operacional con oráculo (Sección 4.6). Estos problemas son más productivos que los que tendríamos si AURA fuera "solo" un agent framework---son preguntas sobre modelos de computación, no sobre arquitectura de software.
+
+Si un programa ya no es una función sino una trayectoria en un espacio restringido, y si el oráculo que guía esa trayectoria es un modelo de lenguaje grande que entiende la semántica del código que ejecuta---entonces la frontera entre "programar" y "especificar intenciones para que una máquina las navegue" se desdibuja de maneras que la teoría de lenguajes de programación aún no ha explorado. AURA hace esa exploración concreta y tratable.
 
 ---
 
@@ -909,6 +1240,34 @@ Si este paradigma escala a sistemas de producción, cómo pueden establecerse ga
 
 [55] Gat, E. (1998). "On Three-Layer Architectures." In *Artificial Intelligence and Mobile Robots*, MIT Press, 195-210.
 
+### Programación lógica y backtracking
+
+[56] Colmerauer, A. & Roussel, P. (1993). "The Birth of Prolog." *History of Programming Languages II*, ACM, 331-367.
+
+[57] Lloyd, J.W. (1987). *Foundations of Logic Programming* (2nd ed.). Springer-Verlag.
+
+[58] Sterling, L. & Shapiro, E. (1994). *The Art of Prolog* (2nd ed.). MIT Press.
+
+### Reversible computing y exploración de estados
+
+[59] Landauer, R. (1961). "Irreversibility and Heat Generation in the Computing Process." *IBM Journal of Research and Development*, 5(3):183-191.
+
+[60] Bennett, C.H. (1973). "Logical Reversibility of Computation." *IBM Journal of Research and Development*, 17(6):525-532.
+
+[61] Clarke, E.M., Grumberg, O., & Peled, D.A. (1999). *Model Checking*. MIT Press.
+
+### Oráculos y computabilidad
+
+[62] Turing, A.M. (1939). "Systems of Logic Based on Ordinals." *Proceedings of the London Mathematical Society*, s2-45(1):161-228.
+
+[63] Rogers, H. (1967). *Theory of Recursive Functions and Effective Computability*. McGraw-Hill.
+
+### Semántica operacional
+
+[64] Plotkin, G.D. (1981). "A Structural Approach to Operational Semantics." Technical Report DAIMI FN-19, Aarhus University.
+
+[65] Wright, A.K. & Felleisen, M. (1994). "A Syntactic Approach to Type Soundness." *Information and Computation*, 115(1):38-94.
+
 ---
 
-*AURA está implementado en Rust con 244 tests. Código fuente disponible en el repositorio del proyecto.*
+*AURA está implementado en Rust con 244+ tests, incluyendo auto-reparación cognitiva funcional. Código fuente disponible en el repositorio del proyecto.*
