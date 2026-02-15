@@ -599,11 +599,11 @@ Para afirmar que AURA propone un *modelo de computación*---y no simplemente una
 
 2. **¿Qué es un estado?** No es un par (entorno, expresión). Es una 7-tupla que incluye historia, checkpoints, goals activos e invariantes activos. → Definición 2 (Sección 4.2).
 
-3. **¿Qué es un paso?** Es una transición determinista o una transición mediada por oráculo, cada una con reglas de inferencia explícitas. → Definiciones 5, 9 (Secciones 4.3, 4.4).
+3. **¿Qué es un paso?** Es una transición determinista o una transición mediada por oráculo, cada una con reglas de inferencia explícitas. → Definiciones 5, 13 (Secciones 4.3, 4.4).
 
-4. **¿Qué significa terminar?** No es alcanzar un valor. Es alcanzar una configuración donde el valor producido es consistente con todos los goals activos, o donde el oráculo ha decidido detenerse. → Definiciones 11-12 (Sección 4.5).
+4. **¿Qué significa terminar?** No es alcanzar un valor. Es alcanzar una configuración donde el valor producido es consistente con todos los goals activos, o donde el oráculo ha decidido detenerse. → Definiciones 16-17 (Sección 4.5).
 
-5. **¿Qué significa ser correcto?** La validez estructural (la ejecución respeta transiciones legales e invariantes) no implica corrección semántica (la intención del desarrollador fue satisfecha). Hay una jerarquía de tres niveles. → Definiciones 16-18, Teorema 3 (Sección 4.7).
+5. **¿Qué significa ser correcto?** La validez estructural (la ejecución respeta transiciones legales e invariantes) no implica corrección semántica (la intención del desarrollador fue satisfecha). Hay una jerarquía de tres niveles. → Definiciones 21-23, Teorema 3 (Sección 4.7).
 
 6. **¿Qué no puede expresar un modelo clásico?** Un programa AURA con oráculo activo tiene múltiples ejecuciones válidas; el modelo clásico de Turing asigna exactamente una. La denotación de un programa AURA es un *conjunto de trayectorias*, no un valor. → Teorema 2, Teoremas 6-8 (Secciones 4.6, 4.12).
 
@@ -651,7 +651,7 @@ donde *P = (C, G, I)* es el programa, *Σ* es el estado cognitivo (Definición 2
 Conf(P) = { 𝒞 | 𝒞₀ →* 𝒞 }
 ```
 
-donde *𝒞₀ = (P, Σ₀, e₀, 0)* es la configuración inicial (estado vacío, expresión raíz del programa, paso cero) y *→** es la clausura reflexivo-transitiva de la relación de transición (Definiciones 5 y 9). *Conf(P)* contiene todas las configuraciones alcanzables desde el inicio.
+donde *𝒞₀ = (P, Σ₀, e₀, 0)* es la configuración inicial (estado vacío, expresión raíz del programa, paso cero) y *→** es la clausura reflexivo-transitiva de la relación de transición (Definiciones 5 y 13). *Conf(P)* contiene todas las configuraciones alcanzables desde el inicio.
 
 ### 4.3 Semántica operacional: transiciones deterministas
 
@@ -691,9 +691,31 @@ Estas reglas son representativas, no exhaustivas. AURA incluye reglas adicionale
 
 *Demostración.* Cada regla de →_d tiene premisas mutuamente excluyentes (determinadas por la forma sintáctica de *e*): [VAR] requiere que *e* sea un identificador, [LET] que sea un let-binding, [CALL] que sea una aplicación, etc. Para una configuración dada, a lo sumo una regla aplica. El resultado de cada regla es una función determinista de sus premisas: la aritmética es determinista, la búsqueda en *H* es determinista, la selección de rama en [IF-TRUE]/[IF-FALSE] es determinista. Por tanto →_d es una función parcial sobre Conf. ∎
 
+**Definición 6 (Función de evaluación determinista).** La función de evaluación determinista es:
+
+```
+eval_d : Expr × Σ → (Val × Σ) ∪ {⊥}
+eval_d(e, Σ) = (v, Σ')  si (P, Σ, e, n) →_d* (P, Σ', v, n')
+             = ⊥         si e se queda stuck
+```
+
+`eval_d` está bien definida por Proposición 1: dado que →_d es una función parcial, la secuencia de reducciones es única, y el resultado (si existe) es único. Implementación: la rama determinista de `VM::eval()` que no invoca al runtime cognitivo.
+
+**Definición 7 (Evaluación con oráculo --- set-valued).** La evaluación con oráculo es una función de conjuntos:
+
+```
+Eval : Expr × Σ × O × S → 𝒫(Val × Σ)
+Eval(e, Σ, O, S) = { (v, Σ') | ∃τ ∈ ⟦P⟧_S : τ pasa por (_, Σ, e, _)
+                     y la siguiente configuración-valor es (_, Σ', v, _) }
+```
+
+Mientras `eval_d` retorna a lo sumo un resultado, `Eval` retorna un *conjunto* de resultados posibles: distintos oráculos pueden producir distintos valores para la misma expresión stuck.
+
+**Observación (Composicionalidad).** `eval_d` es composicional: `eval_d(let x = e₁ in e₂, Σ) = eval_d(e₂, Σ'[x ↦ v])` donde `(v, Σ') = eval_d(e₁, Σ)`. Esto se sigue directamente de la regla [LET] y del determinismo de →_d. En cambio, `Eval` **no es composicional**: el oráculo puede intervenir entre sub-expresiones, alterando el estado de formas no predecibles desde la semántica de las sub-expresiones solas. Formalmente, `Eval(let x = e₁ in e₂, Σ, O, S) ⊉ ⋃_{(v,Σ') ∈ Eval(e₁,Σ,O,S)} Eval(e₂, Σ'[x ↦ v], O, S)` en general, ya que el oráculo acumula historia (Ω) y puede tomar decisiones diferentes según el contexto de evaluación. Esta ruptura de composicionalidad es una **consecuencia fundamental** del modelo, no un defecto: es lo que distingue a AURA de un lenguaje funcional con efectos.
+
 ### 4.4 El oráculo y las transiciones no deterministas
 
-**Definición 6 (Disparador de deliberación).** Un disparador de deliberación clasifica la causa que activa al oráculo. Es un elemento del tipo suma:
+**Definición 8 (Disparador de deliberación).** Un disparador de deliberación clasifica la causa que activa al oráculo. Es un elemento del tipo suma:
 
 ```
 Trigger = ExpectFailed(failure)
@@ -704,7 +726,7 @@ Trigger = ExpectFailed(failure)
 
 Implementación directa: el enum `DeliberationTrigger` en `vm/cognitive.rs` con exactamente estas cuatro variantes.
 
-**Definición 7 (Álgebra de intervención).** El álgebra de intervención es el conjunto:
+**Definición 9 (Álgebra de intervención).** El álgebra de intervención es el conjunto:
 
 ```
 Δ = { Continue,
@@ -716,7 +738,7 @@ Implementación directa: el enum `DeliberationTrigger` en `vm/cognitive.rs` con 
 
 Implementación directa: el enum `CognitiveDecision` en `vm/cognitive.rs`. Δ es finito en estructura (cinco formas) pero infinito en contenido (los valores *v*, el código *C'*, y los ajustes *adj* son arbitrarios). Esto captura la intuición de que el oráculo está *estructuralmente restringido* pero *generativamente libre*.
 
-**Definición 8 (Oráculo).** Un oráculo es una función:
+**Definición 10 (Oráculo).** Un oráculo es una función:
 
 ```
 O : Conf × Trigger → Δ
@@ -726,31 +748,52 @@ No se requiere que *O* sea determinista, total, ni computable. Un LLM es una rea
 
 La separación entre el oráculo como interfaz formal y sus realizaciones concretas es deliberada. El modelo define qué ejecuciones son *válidas* independientemente de *cómo* el oráculo elige; la calidad de la elección es un problema de ingeniería, no de semántica. Esto es análogo a la semántica no determinista en lenguajes concurrentes: la semántica define qué interleavings son válidos sin especificar qué scheduler los produce.
 
-**Definición 9 (Transiciones guiadas por oráculo).** La relación →_o ⊂ Conf × Conf define las transiciones mediadas por el oráculo. La premisa común es que *e* está *stuck*: no puede reducir vía →_d.
+**Definición 11 (Configuración stuck).** Una configuración *𝒞 = (P, Σ, e, n)* está stuck si la expresión activa no es un valor y ninguna regla determinista aplica:
 
 ```
-    stuck(𝒞, e)    O(𝒞, trigger) = Continue
-    ——————————————————————————————————————————— [STEP-CONTINUE]
+stuck(𝒞) ⟺ ¬is_value(e) ∧ ¬∃𝒞'. 𝒞 →_d 𝒞'
+```
+
+La primera condición excluye la terminación normal (Definición 16): si *e* es un valor, la evaluación terminó exitosamente. La segunda exige que ninguna regla de →_d (Definición 5) sea aplicable. Implementación: en `VM::eval()`, una configuración stuck corresponde a un brazo del match que retorna `Err(RuntimeError)`, o a la evaluación de `reason`/`expect` que no puede resolverse determinísticamente.
+
+**Definición 12 (Clasificación de trigger).** La función de clasificación de trigger asigna a cada configuración stuck su causa:
+
+```
+trigger : {𝒞 | stuck(𝒞)} → Trigger
+
+trigger(𝒞) = ExpectFailed(f)           si e = expect(cond, desc) ∧ eval_d(cond, Σ) = (false, _)
+           | GoalMisalignment(g, r)    si ∃g ∈ G_act: g.check ≠ ⊥ ∧ eval_d(g.check, Σ) = (false, _)
+           | ExplicitReason(Ω, q)      si e = reason(q)
+           | TechnicalError(err)       en otro caso
+```
+
+Las tres primeras variantes se verifican en el orden mostrado; `TechnicalError` es el caso residual. Implementación directa: los brazos de `VM::eval()` que construyen un `DeliberationTrigger` e invocan `deliberate()`. La clasificación determina el contexto que el oráculo recibe y, por tanto, influye en la calidad de la intervención.
+
+**Definición 13 (Transiciones guiadas por oráculo).** La relación →_o ⊂ Conf × Conf define las transiciones mediadas por el oráculo. La premisa común es que *𝒞* está stuck (Definición 11) y el trigger está clasificado (Definición 12):
+
+```
+    stuck(𝒞)    O(𝒞, trigger(𝒞)) = Continue
+    ———————————————————————————————————————————— [STEP-CONTINUE]
     𝒞 →_o 𝒞       (la configuración no cambia; la ejecución sigue con la siguiente expresión)
 
 
-    stuck(𝒞, e)    O(𝒞, trigger) = Override(v')
-    ——————————————————————————————————————————————— [STEP-OVERRIDE]
+    stuck(𝒞)    O(𝒞, trigger(𝒞)) = Override(v')
+    ————————————————————————————————————————————— [STEP-OVERRIDE]
     (P, Σ, e, n) →_o (P, Σ, v', n+1)
 
 
-    stuck(𝒞, e)    O(𝒞, trigger) = Backtrack(cp, adj)    cp ∈ dom(U)
-    ——————————————————————————————————————————————————————————————————— [STEP-BACKTRACK]
+    stuck(𝒞)    O(𝒞, trigger(𝒞)) = Backtrack(cp, adj)    cp ∈ dom(U)
+    ———————————————————————————————————————————————————————————————————— [STEP-BACKTRACK]
     (P, Σ, e, n) →_o (P, Σ[H ↦ U(cp).variables ⊕ adj, n ↦ U(cp).step_count], e_resume, n')
 
 
-    stuck(𝒞, e)    O(𝒞, trigger) = Fix(C', expl)    validate(C', G, S) = OK
-    ———————————————————————————————————————————————————————————————————————— [STEP-FIX]
+    stuck(𝒞)    O(𝒞, trigger(𝒞)) = Fix(C', expl)    validate(C', G, S) = OK
+    —————————————————————————————————————————————————————————————————————————— [STEP-FIX]
     (P, Σ, e, n) →_o ((C', G, I), Σ₀, e₀', 0)
 
 
-    stuck(𝒞, e)    O(𝒞, trigger) = Halt(err)
-    ——————————————————————————————————————————— [STEP-HALT]
+    stuck(𝒞)    O(𝒞, trigger(𝒞)) = Halt(err)
+    ———————————————————————————————————————————— [STEP-HALT]
     (P, Σ, e, n) →_o (P, Σ[halted ↦ err], ⊥, n)
 ```
 
@@ -760,15 +803,33 @@ Observaciones cruciales:
 - **STEP-BACKTRACK restaura con ajustes**: el estado se restaura al checkpoint *cp* pero las variables en *adj* se sobreescriben. Esto no es backtracking puro (Prolog) sino backtracking con hipótesis (el oráculo propone: "si esta variable hubiera tenido este valor...").
 - **STEP-CONTINUE no es trivial**: el oráculo puede decidir explícitamente que la ejecución debe continuar pese al stuck---por ejemplo, cuando un `expect` falla pero el oráculo juzga que no requiere intervención.
 
+**Definición 14 (Admisibilidad).** Una decisión *δ ∈ Δ* es admisible en el contexto de una configuración *𝒞* y restricciones *S* si satisface las condiciones de seguridad correspondientes a su variante:
+
+```
+admissible(Continue, 𝒞, S)          = true
+admissible(Override(v), 𝒞, S)       = ∀iₖ ∈ I_act: eval_d(iₖ, Σ[result(e) ↦ v]) ∉ {false}
+admissible(Fix(C', expl), 𝒞, S)    = validate(C', G, S) = OK
+admissible(Backtrack(cp, adj), 𝒞, S) = cp ∈ dom(U)
+                                       ∧ consecutive_backtracks < max_backtrack_depth
+                                       ∧ ∀iₖ ∈ I_act: eval_d(iₖ, U(cp).Σ ⊕ adj) ∉ {false}
+admissible(Halt(err), 𝒞, S)        = true
+```
+
+Continue y Halt son siempre admisibles: el primero no modifica nada, el segundo detiene la ejecución. Override es admisible si el valor inyectado no viola invariantes activos. Fix es admisible si pasa la validación completa (`validate_fix()`). Backtrack es admisible si el checkpoint existe, no se excede la profundidad máxima de backtracks consecutivos, y el estado restaurado con ajustes no viola invariantes.
+
 **Proposición 2 (Exhaustividad del álgebra).** *Toda transición →_o es instancia de exactamente una de las cinco reglas.*
 
-*Demostración.* Las cinco reglas tienen premisas mutuamente excluyentes determinadas por la forma de *δ = O(𝒞, trigger)*: δ es exactamente una variante del tipo suma Δ (Definición 7). Toda variante de Δ tiene una regla correspondiente. Por tanto la partición es exhaustiva y disjunta. ∎
+*Demostración.* Las cinco reglas tienen premisas mutuamente excluyentes determinadas por la forma de *δ = O(𝒞, trigger(𝒞))*: δ es exactamente una variante del tipo suma Δ (Definición 9). Toda variante de Δ tiene una regla correspondiente. Por tanto la partición es exhaustiva y disjunta. ∎
+
+**Proposición 3 (Soundness de admisibilidad).** *Si `admissible(δ, 𝒞, S)` y 𝒞 →_o 𝒞' vía δ, entonces ∀iₖ ∈ I_act: eval_d(iₖ, H') ∉ {false}, donde H' es el heap de la configuración resultante 𝒞'.*
+
+*Demostración (por análisis de casos).* Para *δ = Continue*: la configuración no cambia, por lo que *H' = H* y los invariantes que se satisfacían antes siguen satisfaciéndose. Para *δ = Override(v)*: la definición de admisibilidad verifica explícitamente los invariantes sobre el nuevo valor. Para *δ = Backtrack(cp, adj)*: la admisibilidad verifica invariantes sobre el estado restaurado con ajustes aplicados. Para *δ = Fix(C', expl)*: la ejecución reinicia con Σ₀ (estado inicial vacío); los invariantes se verificarán desde cero durante la nueva ejecución. Para *δ = Halt(err)*: la ejecución se detiene; no hay *H'* sobre el que verificar invariantes (la trayectoria ha terminado). ∎
 
 ### 4.5 Ejecución, trayectoria y terminación
 
 Esta subsección responde la cuarta pregunta fundacional: *¿qué significa terminar?*
 
-**Definición 10 (Trayectoria).** Una trayectoria de un programa *P* es una secuencia (posiblemente infinita) de configuraciones:
+**Definición 15 (Trayectoria).** Una trayectoria de un programa *P* es una secuencia (posiblemente infinita) de configuraciones:
 
 ```
 τ = 𝒞₀, 𝒞₁, 𝒞₂, ...
@@ -776,7 +837,7 @@ Esta subsección responde la cuarta pregunta fundacional: *¿qué significa term
 
 donde *𝒞₀* es la configuración inicial y cada par consecutivo está conectado por una transición: *𝒞ᵢ →_d 𝒞ᵢ₊₁* o *𝒞ᵢ →_o 𝒞ᵢ₊₁*. Sea *Traj(P)* el conjunto de todas las trayectorias de *P*.
 
-**Definición 11 (Configuración terminal).** Una configuración *𝒞 = (P, Σ, e, n)* es terminal si:
+**Definición 16 (Configuración terminal).** Una configuración *𝒞 = (P, Σ, e, n)* es terminal si:
 
 ```
 terminal(𝒞) ⟺ (is_value(e) ∧ ∀g ∈ G_act : checkⱼ ≠ ⊥ ⟹ eval(checkⱼ, H) ≠ false)
@@ -787,13 +848,13 @@ La primera disyunción dice: *e* es un valor (la evaluación produjo un resultad
 
 Nótese que `eval(checkⱼ, H) ≠ false` no exige `= true`: si la evaluación del check produce ⊥ (variable del check aún no definida), la condición se satisface vacuamente. Esto refleja la implementación, donde `eval(check)` puede fallar si las variables del check aún no existen en *H*.
 
-**Definición 12 (Terminación).** Una trayectoria *τ* termina si es finita y su última configuración es terminal:
+**Definición 17 (Terminación).** Una trayectoria *τ* termina si es finita y su última configuración es terminal:
 
 ```
 terminates(τ) ⟺ |τ| < ∞ ∧ terminal(last(τ))
 ```
 
-**Definición 13 (Restricciones de seguridad).** Las restricciones de seguridad son una 5-tupla:
+**Definición 18 (Restricciones de seguridad).** Las restricciones de seguridad son una 5-tupla:
 
 ```
 S = (max_retries, max_deliberations, max_backtrack_depth, max_fix_lines, max_no_progress)
@@ -829,17 +890,15 @@ Combinando: toda rama del ciclo de ejecución está acotada por un decremento l�
 
 Esta subsección y la siguiente contienen la tesis central del modelo.
 
-**Definición 14 (Trayectoria válida).** Una trayectoria *τ = 𝒞₀, 𝒞₁, ...* es válida respecto a restricciones *S* si cumple cuatro condiciones:
+**Definición 19 (Trayectoria válida).** Una trayectoria *τ = 𝒞₀, 𝒞₁, ...* es válida respecto a restricciones *S* si cumple tres condiciones:
 
-1. **Seguridad de invariantes**: *∀i. ∀iₖ ∈ I_act. eval(iₖ, Hᵢ) ∉ {false}* — ningún invariante se viola en ningún paso. (La evaluación puede producir ⊥ si las variables del invariante aún no existen; esto no cuenta como violación.)
+1. **Legalidad de transiciones**: cada par consecutivo *𝒞ᵢ, 𝒞ᵢ₊₁* está conectado por una transición →_d (Definición 5) o →_o (Definición 13).
 
-2. **Legalidad de transiciones**: cada par consecutivo *𝒞ᵢ, 𝒞ᵢ₊₁* está conectado por una transición →_d (Definición 5) o →_o (Definición 9).
+2. **Admisibilidad del oráculo**: toda decisión *δ* emitida por el oráculo satisface `admissible(δ, 𝒞, S)` (Definición 14). Esto subsume tanto la seguridad de invariantes (verificada por caso en la definición de admisibilidad) como la disciplina de restricciones (profundidad de backtrack, validación de fixes).
 
-3. **Disciplina del oráculo**: toda decisión *δ* emitida por el oráculo respeta las restricciones de seguridad *S*. En particular: todo Fix(C', expl) satisface `validate(C', G, S) = OK`, todo Backtrack(cp, adj) satisface *cp ∈ dom(U)* y la profundidad no excede *max_backtrack_depth*, y el total de deliberaciones no excede *max_deliberations*.
+3. **Preservación de especificación**: toda transición STEP-FIX preserva *G* e *I*. Si el programa antes de la transición es *(C, G, I)* y después es *(C', G', I')*, entonces *G' = G* e *I' = I*.
 
-4. **Preservación de especificación**: toda transición STEP-FIX preserva *G* e *I*. Si el programa antes de la transición es *(C, G, I)* y después es *(C', G', I')*, entonces *G' = G* e *I' = I*.
-
-**Definición 15 (Denotación de un programa).** La denotación de un programa *P* bajo restricciones *S* es:
+**Definición 20 (Denotación de un programa).** La denotación de un programa *P* bajo restricciones *S* es:
 
 ```
 ⟦P⟧_S = { τ ∈ Traj(P) | valid(τ, S) ∧ terminates(τ) }
@@ -849,17 +908,17 @@ Es decir: el conjunto de todas las trayectorias válidas y terminantes de *P*. *
 
 **Teorema 2 (Denotación como conjunto de trayectorias --- tesis central).** *⟦P⟧_S ⊆ 𝒫(Traj(P)). Si el oráculo es activo (O ≠ O_null) y existe al menos un punto stuck en la ejecución, entonces es posible que |⟦P⟧_S| > 1: el programa admite múltiples ejecuciones válidas. El oráculo selecciona entre ellas.*
 
-*Demostración.* La primera parte es directa de la Definición 15: ⟦P⟧_S es un subconjunto de Traj(P) y por tanto un elemento de 𝒫(Traj(P)).
+*Demostración.* La primera parte es directa de la Definición 20: ⟦P⟧_S es un subconjunto de Traj(P) y por tanto un elemento de 𝒫(Traj(P)).
 
-Para la segunda parte, construimos un ejemplo explícito. Sea *P* un programa con un expect que falla, y sean *O₁, O₂* dos oráculos tales que *O₁(𝒞, ExpectFailed(...)) = Override(v₁)* y *O₂(𝒞, ExpectFailed(...)) = Override(v₂)* con *v₁ ≠ v₂*. Ambas trayectorias resultantes satisfacen las cuatro condiciones de validez (Definición 14): los invariantes se respetan (Override no modifica *H* excepto el resultado de la expresión), las transiciones son legales (STEP-OVERRIDE), el oráculo respeta *S* (Override no tiene restricción de seguridad adicional), y la especificación se preserva (Override no modifica *P*). Por tanto *τ₁, τ₂ ∈ ⟦P⟧_S* y *τ₁ ≠ τ₂*. ∎
+Para la segunda parte, construimos un ejemplo explícito. Sea *P* un programa con un expect que falla, y sean *O₁, O₂* dos oráculos tales que *O₁(𝒞, ExpectFailed(...)) = Override(v₁)* y *O₂(𝒞, ExpectFailed(...)) = Override(v₂)* con *v₁ ≠ v₂*. Ambas trayectorias resultantes satisfacen las tres condiciones de validez (Definición 19): las transiciones son legales (STEP-OVERRIDE), la decisión Override es admisible (Definición 14: no viola invariantes), y la especificación se preserva (Override no modifica *P*). Por tanto *τ₁, τ₂ ∈ ⟦P⟧_S* y *τ₁ ≠ τ₂*. ∎
 
 Este teorema es el resultado central: la denotación de un programa AURA es genuinamente no determinista cuando el oráculo está activo. Esto distingue formalmente a AURA de los lenguajes funcionales (denotación es un valor), de los lenguajes concurrentes (el no determinismo proviene del scheduling, no de un oráculo semántico), y de los lenguajes lógicos (el no determinismo proviene de la unificación, no de un oráculo generativo).
 
-**Proposición 3 (Monotonicidad).** *Sea S una restricción de seguridad y S' una relajación de S (mayores límites). Entonces ⟦P⟧_S ⊆ ⟦P⟧_S'. Análogamente, sea I' ⊂ I un subconjunto estricto de invariantes; entonces ⟦(C,G,I)⟧_S ⊆ ⟦(C,G,I')⟧_S.*
+**Proposición 4 (Monotonicidad).** *Sea S una restricción de seguridad y S' una relajación de S (mayores límites). Entonces ⟦P⟧_S ⊆ ⟦P⟧_S'. Análogamente, sea I' ⊂ I un subconjunto estricto de invariantes; entonces ⟦(C,G,I)⟧_S ⊆ ⟦(C,G,I')⟧_S.*
 
 *Demostración.* Relajar restricciones solo puede hacer que más trayectorias satisfagan las condiciones de validez: la condición 1 (seguridad de invariantes) se debilita con menos invariantes, la condición 3 (disciplina del oráculo) se debilita con límites mayores. Toda trayectoria válida bajo restricciones más fuertes sigue siendo válida bajo restricciones más débiles. ∎
 
-**Proposición 4 (Conexión con power domains).** *⟦P⟧_S se interpreta naturalmente en el sentido del power domain de Hoare (Plotkin 1976): P "puede producir" una trayectoria válida si existe al menos un oráculo O tal que la trayectoria resultante pertenece a ⟦P⟧_S.*
+**Proposición 5 (Conexión con power domains).** *⟦P⟧_S se interpreta naturalmente en el sentido del power domain de Hoare (Plotkin 1976): P "puede producir" una trayectoria válida si existe al menos un oráculo O tal que la trayectoria resultante pertenece a ⟦P⟧_S.*
 
 *Observación.* El power domain de Smyth (P "debe producir" para todo oráculo) no se satisface en general: oráculos patológicos (ej., siempre Halt) producen trayectorias degeneradas. El power domain de Plotkin (may + must) requeriría restricciones adicionales sobre el oráculo que el modelo actual no impone. La semántica de Hoare---existencial sobre oráculos---es la interpretación correcta para AURA: un programa es "ejecutable" si *existe* un oráculo que produce una trayectoria válida.
 
@@ -867,15 +926,15 @@ Este teorema es el resultado central: la denotación de un programa AURA es genu
 
 Esta subsección responde la quinta pregunta fundacional: *¿qué significa ser correcto?*
 
-**Definición 16 (Corrección estructural).** Una trayectoria *τ* es estructuralmente correcta si pertenece a la denotación del programa:
+**Definición 21 (Corrección estructural).** Una trayectoria *τ* es estructuralmente correcta si pertenece a la denotación del programa:
 
 ```
 correct_struct(τ) ⟺ τ ∈ ⟦P⟧_S
 ```
 
-Es decir: la trayectoria es válida (Definición 14) y termina (Definición 12). Corrección estructural es el nivel mínimo: la ejecución respetó las reglas del modelo.
+Es decir: la trayectoria es válida (Definición 19) y termina (Definición 17). Corrección estructural es el nivel mínimo: la ejecución respetó las reglas del modelo.
 
-**Definición 17 (Corrección semántica --- intención satisfecha).** Una trayectoria *τ* satisface la intención declarada si, además de ser estructuralmente correcta, todos los goals con check evalúan a true en la configuración final:
+**Definición 22 (Corrección semántica --- intención satisfecha).** Una trayectoria *τ* satisface la intención declarada si, además de ser estructuralmente correcta, todos los goals con check evalúan a true en la configuración final:
 
 ```
 correct_sat(τ) ⟺ terminal(last(τ)) ∧ ∀g ∈ G : (g.check ≠ ⊥ ⟹ eval(g.check, H_final) = true)
@@ -883,7 +942,7 @@ correct_sat(τ) ⟺ terminal(last(τ)) ∧ ∀g ∈ G : (g.check ≠ ⊥ ⟹ eva
 
 La diferencia con corrección estructural es que aquí exigimos que todos los checks evalúen a *true*, no solo que no evalúen a *false*. Un goal cuyo check produce ⊥ en la configuración final no satisface esta definición.
 
-**Definición 18 (Corrección semántica --- intención preservada).** Una trayectoria *τ* preserva la intención si, además de satisfacerla, toda intervención del oráculo es coherente con la semántica intencional de los goals:
+**Definición 23 (Corrección semántica --- intención preservada).** Una trayectoria *τ* preserva la intención si, además de satisfacerla, toda intervención del oráculo es coherente con la semántica intencional de los goals:
 
 ```
 correct_pres(τ) ⟺ correct_sat(τ) ∧ ∀δᵢ ∈ interventions(τ) : intent_coherent(δᵢ, G)
@@ -895,7 +954,23 @@ correct_pres(τ) ⟺ correct_sat(τ) ∧ ∀δᵢ ∈ interventions(τ) : intent
 - *HyperLTL*: formalizaría propiedades sobre *conjuntos* de trayectorias (ej., "toda trayectoria que satisface el goal lo hace por la misma razón").
 - *Lógica deóntica*: distinguiría entre lo que el oráculo *puede* hacer (permitido por Δ) y lo que *debe* hacer (coherente con la intención).
 
-Ejemplo concreto de la brecha: dado `goal "mantener usuarios activos" check usuarios != nil`, un oráculo que elimina todos los usuarios satisface el check (lista vacía ≠ nil en AURA) pero no preserva la intención. La Definición 17 no detecta esto; la Definición 18 lo detectaría con un `intent_coherent` adecuado.
+Ejemplo concreto de la brecha: dado `goal "mantener usuarios activos" check usuarios != nil`, un oráculo que elimina todos los usuarios satisface el check (lista vacía ≠ nil en AURA) pero no preserva la intención. La Definición 22 no detecta esto; la Definición 23 lo detectaría con un `intent_coherent` adecuado.
+
+Sin definir `intent_coherent`, establecemos **condiciones necesarias** que cualquier formalización futura debe cumplir:
+
+**Desiderata para `intent_coherent`.**
+
+```
+(D1) Consistencia:     intent_coherent(δ, G) ⟹ admissible(δ, 𝒞, S)
+(D2) No-trivialidad:   ∃δ: admissible(δ, 𝒞, S) ∧ ¬intent_coherent(δ, G)
+(D3) Monotonía en G:   G' ⊆ G ∧ intent_coherent(δ, G) ⟹ intent_coherent(δ, G')
+(D4) Frame:            si δ no modifica variables mencionadas en g.check
+                       para ningún g ∈ G, entonces intent_coherent(δ, G)
+```
+
+(D1) dice que coherencia implica admisibilidad---es estrictamente más fuerte. (D2) dice que la relación no es trivial: existen intervenciones admisibles que no son coherentes (el ejemplo de "eliminar usuarios" es admisible pero no coherente). (D3) dice que quitar goals no puede hacer incoherente algo coherente: si una intervención es coherente con un conjunto grande de goals, lo es con cualquier subconjunto. (D4) da una condición suficiente parcial: si la intervención no toca las variables mencionadas en los checks de los goals, es coherente---un principio de *frame* que acota el problema.
+
+Estas desiderata son verificables contra el ejemplo: la intervención "eliminar usuarios" viola (D2) (es admisible pero incoherente) y no satisface (D4) (modifica la variable `usuarios` mencionada en el check).
 
 **Teorema 3 (Jerarquía de corrección).** *correct_pres(τ) ⟹ correct_sat(τ) ⟹ correct_struct(τ). Los conversos son falsos.*
 
@@ -903,13 +978,13 @@ Ejemplo concreto de la brecha: dado `goal "mantener usuarios activos" check usua
 
 Para los conversos, construimos contraejemplos:
 
-- *correct_struct ⇏ correct_sat*: una trayectoria que termina con `halted(𝒞)` (el oráculo emitió Halt) es estructuralmente correcta (terminal por la segunda disyunción de Definición 11) pero no satisface correct_sat si algún goal check evalúa a ⊥ o false.
+- *correct_struct ⇏ correct_sat*: una trayectoria que termina con `halted(𝒞)` (el oráculo emitió Halt) es estructuralmente correcta (terminal por la segunda disyunción de Definición 16) pero no satisface correct_sat si algún goal check evalúa a ⊥ o false.
 
 - *correct_sat ⇏ correct_pres*: el ejemplo de "mantener usuarios activos" arriba---la trayectoria satisface todos los checks pero la intervención del oráculo (eliminar usuarios) no es coherente con la intención. ∎
 
 ### 4.8 Continuación negociada y equivalencia observacional
 
-**Definición 19 (Continuación negociada).** Cuando una configuración *𝒞* está stuck (la expresión *e* no puede reducir vía →_d), la continuación se determina por la función:
+**Definición 24 (Continuación negociada).** Cuando una configuración *𝒞* está stuck (la expresión *e* no puede reducir vía →_d), la continuación se determina por la función:
 
 ```
 negotiate : (Σ_stuck, Trigger, O, G, I, S) → Δ | REJECT
@@ -928,7 +1003,23 @@ Implementación: en `AgentCognitiveRuntime::deliberate()`, la propuesta del LLM 
 
 La negociación involucra tres participantes---semántica (que declara stuck), oráculo (que propone δ), y restricciones (que validan δ)---y la continuación es *emergente* de su interacción, no una propiedad de ninguno por separado.
 
-**Definición 20 (Equivalencia observacional).** Dos trayectorias *τ₁, τ₂ ∈ ⟦P⟧_S* son observacionalmente equivalentes si producen el mismo resultado observable:
+**Definición 25 (Viabilidad).** Una configuración stuck es viable si el oráculo puede proponer al menos una decisión admisible:
+
+```
+viable(𝒞, O, S) ⟺ stuck(𝒞) ∧ ∃δ ∈ Δ: O(𝒞, trigger(𝒞)) = δ ∧ admissible(δ, 𝒞, S)
+```
+
+La viabilidad conecta tres conceptos previamente independientes: stuck (Definición 11), trigger (Definición 12), y admisibilidad (Definición 14). Una configuración stuck que no es viable es un callejón sin salida del que el oráculo no puede salir dentro de las restricciones.
+
+**Proposición 6 (Viabilidad del oráculo nulo).** *Para toda configuración stuck 𝒞, se cumple `viable(𝒞, O_null, S)`.*
+
+*Demostración.* *O_null(𝒞, t) = Continue* para todo *𝒞* y *t* (Definición 10). Por Definición 14, `admissible(Continue, 𝒞, S) = true` siempre. Por tanto existe *δ = Continue* tal que *O_null(𝒞, trigger(𝒞)) = δ* y *admissible(δ, 𝒞, S)*. ∎
+
+**Proposición 7 (No-viabilidad implica terminación).** *Si `stuck(𝒞) ∧ ¬viable(𝒞, O, S)`, entonces la trayectoria termina. Más aún: toda trayectoria en ⟦P⟧_S solo pasa por configuraciones stuck que fueron viables.*
+
+*Demostración (esbozo).* Si una configuración stuck no es viable, el oráculo no puede proponer una decisión admisible. La ejecución no puede avanzar vía →_d (por definición de stuck) ni vía →_o (por falta de decisión admisible). Pero los límites de *S* (Definición 18)---`max_deliberations` y `max_no_progress`---fuerzan Halt después de un número finito de intentos fallidos. Por tanto la trayectoria termina. Recíprocamente, si una trayectoria pertenece a ⟦P⟧_S, toda transición →_o en ella aplicó una decisión admisible (por la condición 2 de validez, Definición 19), lo que implica que cada configuración stuck fue viable. ∎
+
+**Definición 26 (Equivalencia observacional).** Dos trayectorias *τ₁, τ₂ ∈ ⟦P⟧_S* son observacionalmente equivalentes si producen el mismo resultado observable:
 
 ```
 τ₁ ~_obs τ₂ ⟺ terminal(last(τ₁)) = terminal(last(τ₂))
@@ -937,7 +1028,7 @@ La negociación involucra tres participantes---semántica (que declara stuck), o
 
 Es decir: misma configuración terminal y mismos resultados de goal checks. Dos trayectorias que llegan al mismo resultado por caminos diferentes (una vía Override, otra vía Backtrack) son observacionalmente equivalentes.
 
-**Proposición 5 (No trivialidad de las clases de equivalencia).** *Cuando el oráculo es activo y existe al menos un punto stuck, las clases de equivalencia [τ]_{~obs} son generalmente no triviales: contienen múltiples trayectorias distintas que producen el mismo resultado observable.*
+**Proposición 8 (No trivialidad de las clases de equivalencia).** *Cuando el oráculo es activo y existe al menos un punto stuck, las clases de equivalencia [τ]_{~obs} son generalmente no triviales: contienen múltiples trayectorias distintas que producen el mismo resultado observable.*
 
 *Demostración (constructiva).* Sea *P* un programa con un expect fallido. Sea *O₁* un oráculo que elige Override(v) y *O₂* un oráculo que elige Backtrack(cp, adj) seguido de evaluación exitosa que produce *v*. Las trayectorias *τ₁* (un paso de override) y *τ₂* (backtrack + re-evaluación) son distintas (diferentes longitudes, diferentes transiciones) pero producen la misma configuración terminal con el mismo valor *v* y los mismos resultados de goal checks. Por tanto *τ₁ ~_obs τ₂* y *[τ₁]_{~obs}* contiene al menos dos elementos. ∎
 
@@ -969,7 +1060,7 @@ En los cinco casos, G' = G e I' = I. ∎
 
 *Demostración (por degeneración).*
 
-- *Sin goals/invariantes*: la condición 1 de validez (Definición 14) se satisface vacuamente (no hay invariantes que violar). La condición 4 se satisface vacuamente (no hay especificación que preservar). ⟦P⟧_S contiene *todas* las trayectorias que terminan---el oráculo no tiene guía. Esto es indistinguible de un sistema de retry donde un LLM sugiere parches sin criterio de éxito.
+- *Sin goals/invariantes*: la condición 2 de validez (Definición 19) se debilita (la admisibilidad no verifica invariantes porque no hay). La condición 3 se satisface vacuamente (no hay especificación que preservar). ⟦P⟧_S contiene *todas* las trayectorias que terminan---el oráculo no tiene guía. Esto es indistinguible de un sistema de retry donde un LLM sugiere parches sin criterio de éxito.
 
 - *Sin observe*: el componente Ω del estado (Definición 2) es siempre vacío. El oráculo recibe la configuración sin historia de observaciones. Las decisiones del oráculo son uniformemente desinformadas sobre la evolución del estado. Esto es indistinguible de la reparación post-mortem: el oráculo ve el error pero no el camino que llevó a él.
 
@@ -979,20 +1070,20 @@ En los cinco casos, G' = G e I' = I. ∎
 
 - *Sin backtrack*: Δ pierde la variante Backtrack. Las únicas correcciones posibles son Override (puntual, sin cambio de estado) y Fix (reinicio total con nuevo código). No hay exploración de trayectorias alternativas. Esto es exactamente lo que hacen las herramientas APR existentes: reiniciar desde cero con un parche. ∎
 
-**Proposición 6 (Suficiencia).** *Las cinco primitivas (goal/invariant, observe, expect, reason, backtrack) junto con la evaluación determinista (→_d) bastan para realizar toda τ ∈ ⟦P⟧_S.*
+**Proposición 9 (Suficiencia).** *Las cinco primitivas (goal/invariant, observe, expect, reason, backtrack) junto con la evaluación determinista (→_d) bastan para realizar toda τ ∈ ⟦P⟧_S.*
 
 *Demostración (esbozo).* Toda trayectoria en ⟦P⟧_S es una secuencia de transiciones →_d y →_o. Las transiciones →_d son realizadas por la evaluación determinista. Las transiciones →_o requieren: (1) detectar que *e* está stuck---realizado por la evaluación determinista que produce error; (2) clasificar el trigger---realizado por expect (ExpectFailed), reason (ExplicitReason), goals (GoalMisalignment), o el evaluador (TechnicalError); (3) aplicar la decisión---Override y Fix no requieren primitivas adicionales, Backtrack requiere checkpoints (creados por observe). Por tanto las cinco primitivas + evaluación determinista cubren toda la maquinaria necesaria. ∎
 
 ### 4.11 Backtrack y la estructura de grafo
 
-**Definición 21 (Grafo de ejecución).** El grafo de ejecución de una trayectoria *τ* es *G(τ) = (V, E)* donde:
+**Definición 27 (Grafo de ejecución).** El grafo de ejecución de una trayectoria *τ* es *G(τ) = (V, E)* donde:
 
 - *V = {𝒞ᵢ | 𝒞ᵢ ∈ τ}* es el conjunto de configuraciones visitadas.
 - *E = {(𝒞ᵢ, 𝒞ᵢ₊₁, label) | 𝒞ᵢ, 𝒞ᵢ₊₁ consecutivos en τ}* donde *label ∈ {det, continue, override, backtrack, fix, halt}* indica el tipo de transición.
 
 Cuando τ no contiene transiciones Backtrack, G(τ) es un camino (grafo lineal). Cuando τ contiene Backtrack, G(τ) es un árbol: cada Backtrack crea una bifurcación desde un nodo anterior.
 
-**Definición 22 (Anchura de exploración).** La anchura de exploración de una trayectoria es:
+**Definición 28 (Anchura de exploración).** La anchura de exploración de una trayectoria es:
 
 ```
 width(τ) = max_{cp ∈ dom(U)} |{δᵢ ∈ τ | δᵢ = Backtrack(cp, _)}|
@@ -1004,7 +1095,7 @@ Es decir: el número máximo de veces que se retrocede al *mismo* checkpoint con
 
 **Propiedad (Ajustes como hipótesis).** Los ajustes *adj* en Backtrack(cp, adj) son hipótesis contrafactuales que el oráculo propone: "si las variables hubieran tenido estos valores en este punto, la trayectoria habría sido diferente". Esto conecta con el razonamiento contrafactual (Pearl 2000) y con la búsqueda heurística en planificación.
 
-**Propiedad (Exploración acotada).** A diferencia de Prolog (backtracking exhaustivo) o model checking (exploración exhaustiva), la exploración de AURA es: guiada por oráculo (no exhaustiva), acotada por *max_backtrack_depth* (Definición 13), e informada por la historia Ω (el oráculo ve backtracks anteriores y puede evitar repetirlos).
+**Propiedad (Exploración acotada).** A diferencia de Prolog (backtracking exhaustivo) o model checking (exploración exhaustiva), la exploración de AURA es: guiada por oráculo (no exhaustiva), acotada por *max_backtrack_depth* (Definición 18), e informada por la historia Ω (el oráculo ve backtracks anteriores y puede evitar repetirlos).
 
 ### 4.12 Relación con modelos clásicos: reducciones formales
 
@@ -1037,7 +1128,7 @@ AURA se posiciona en una intersección que ningún modelo individual cubre: ejec
 
 *Esta subsección presenta direcciones de investigación, no resultados establecidos.*
 
-La denotación ⟦P⟧_S (Definición 15) no distingue *cómo* se produce un valor---si por evaluación determinista, por inyección del oráculo, o por backtracking. Un sistema de tipos cognitivos capturaría esta distinción:
+La denotación ⟦P⟧_S (Definición 20) no distingue *cómo* se produce un valor---si por evaluación determinista, por inyección del oráculo, o por backtracking. Un sistema de tipos cognitivos capturaría esta distinción:
 
 ```
 Tipos de continuación:
@@ -1289,7 +1380,7 @@ Este ejemplo no es un escenario artificial---es la demostración concreta del mo
 
 1. **El programa define un espacio de trayectorias, no un comportamiento fijo.** La trayectoria "evaluar `temp > umbral_temp` → crash" no es la única posible. El runtime cognitivo encuentra una trayectoria alternativa: reemplazar `umbral_temp` con `35.0` y reintentar.
 
-2. **El error es un punto de bifurcación, no un crash.** En la Sección 4.4, definimos que un error activa una transición no determinista (Definición 9, regla STEP-FIX). Aquí el `RuntimeError` activa `deliberate(TechnicalError)`, que produce un `Fix`---una trayectoria alternativa.
+2. **El error es un punto de bifurcación, no un crash.** En la Sección 4.4, definimos que un error activa una transición no determinista (Definición 13, regla STEP-FIX). Aquí el `RuntimeError` activa `deliberate(TechnicalError)`, que produce un `Fix`---una trayectoria alternativa.
 
 3. **Las restricciones acotan la intervención.** El fix propuesto pasa por `validate_fix()`: debe parsear como AURA válido, preservar los dos goals, y no exceder 50 líneas. No es una intervención arbitraria---es una selección dentro del espacio restringido.
 
@@ -1411,18 +1502,18 @@ Esta evaluación tiene limitaciones que deben hacerse explícitas:
 
 La Sección 4 presentó el modelo formal de ejecución como selección de trayectoria restringida, estructurado alrededor de seis preguntas fundacionales (Sección 4.1). Aquí evaluamos qué logra esa formalización y qué queda pendiente.
 
-**Lo que logra la formalización.** Las Definiciones 1-22 (Secciones 4.2-4.12) responden seis preguntas que cualquier modelo de computación debe abordar:
+**Lo que logra la formalización.** Las Definiciones 1-28 (Secciones 4.2-4.12) responden seis preguntas que cualquier modelo de computación debe abordar:
 
 1. *¿Qué es un programa?* (Def. 1): una tripleta P = (C, G, I) de implementación, intenciones y restricciones.
 2. *¿Qué es un estado?* (Def. 2): una 7-tupla que incluye heap, funciones, continuaciones, goals activos, invariantes, historia de observaciones y checkpoints.
-3. *¿Qué es un paso?* (Defs. 5, 9): una transición determinista o una transición mediada por oráculo, con reglas de inferencia explícitas.
-4. *¿Qué significa terminar?* (Defs. 11-12): alcanzar una configuración terminal donde el valor es consistente con los goals o el oráculo decidió detenerse.
-5. *¿Qué significa ser correcto?* (Defs. 16-18, Teorema 3): una jerarquía de tres niveles---corrección estructural, intención satisfecha, intención preservada.
+3. *¿Qué es un paso?* (Defs. 5, 13): una transición determinista o una transición mediada por oráculo, con reglas de inferencia explícitas.
+4. *¿Qué significa terminar?* (Defs. 16-17): alcanzar una configuración terminal donde el valor es consistente con los goals o el oráculo decidió detenerse.
+5. *¿Qué significa ser correcto?* (Defs. 21-23, Teorema 3): una jerarquía de tres niveles---corrección estructural, intención satisfecha, intención preservada.
 6. *¿Qué no puede expresar un modelo clásico?* (Teoremas 6-8): AURA generaliza estrictamente los modelos de Turing, planificación y control reactivo.
 
-La denotación de un programa (Definición 15, Teorema 2) como conjunto de trayectorias válidas es el resultado central: eleva a AURA de *sistema interesante* a *modelo de computación*. AURA no compite con DSPy, LMQL, o LangChain (herramientas para *usar* LLMs). Compite con la pregunta de qué significa ejecutar un programa en presencia de incertidumbre.
+La denotación de un programa (Definición 20, Teorema 2) como conjunto de trayectorias válidas es el resultado central: eleva a AURA de *sistema interesante* a *modelo de computación*. AURA no compite con DSPy, LMQL, o LangChain (herramientas para *usar* LLMs). Compite con la pregunta de qué significa ejecutar un programa en presencia de incertidumbre.
 
-**Lo que no logra (aún).** La formalización define *validez estructural* y *corrección semántica por satisfacción* (Definición 17), pero no *corrección semántica por preservación de intención* (Definición 18). La brecha entre intención satisfecha e intención preservada (Sección 4.7) permanece abierta como problema formal deliberado. Cerrarla requiere un lenguaje de especificación de intenciones más rico---conectando con la lógica de intenciones (Cohen & Levesque 1990), HyperLTL, o lógica deóntica.
+**Lo que no logra (aún).** La formalización define *validez estructural* y *corrección semántica por satisfacción* (Definición 22), pero no *corrección semántica por preservación de intención* (Definición 23). La brecha entre intención satisfecha e intención preservada (Sección 4.7) permanece abierta como problema formal deliberado. Cerrarla requiere un lenguaje de especificación de intenciones más rico---conectando con la lógica de intenciones (Cohen & Levesque 1990), HyperLTL, o lógica deóntica.
 
 **Mapeo a frameworks formales existentes:**
 
@@ -1466,7 +1557,7 @@ Esto sugiere que AURA es, hasta donde sabemos, **el primer runtime de lenguaje d
 
 ### 8.3 Limitaciones
 
-**Intención preservada vs. intención satisfecha (el problema central).** Como se discutió en la Sección 4.7 (Definiciones 17-18), AURA hoy solo garantiza *intención satisfecha*: que los goals evalúen a `true` después de una intervención. Pero no garantiza *intención preservada*: que la intervención sea coherente con lo que el desarrollador quiso decir. Un goal "mantener usuarios activos" podría satisfacerse degeneradamente eliminando usuarios inactivos, cuando el desarrollador quería notificarles. Este es el problema conceptual más importante que enfrenta el modelo, y resolverlo probablemente requiere un lenguaje de especificación de intenciones más rico que expresiones booleanas---conectando con la semántica de intenciones de Cohen & Levesque (1990) o verificación de propiedades temporales (LTL/CTL).
+**Intención preservada vs. intención satisfecha (el problema central).** Como se discutió en la Sección 4.7 (Definiciones 22-23), AURA hoy solo garantiza *intención satisfecha*: que los goals evalúen a `true` después de una intervención. Pero no garantiza *intención preservada*: que la intervención sea coherente con lo que el desarrollador quiso decir. Un goal "mantener usuarios activos" podría satisfacerse degeneradamente eliminando usuarios inactivos, cuando el desarrollador quería notificarles. Este es el problema conceptual más importante que enfrenta el modelo, y resolverlo probablemente requiere un lenguaje de especificación de intenciones más rico que expresiones booleanas---conectando con la semántica de intenciones de Cohen & Levesque (1990) o verificación de propiedades temporales (LTL/CTL).
 
 **Coherencia semántica de intervenciones.** Relacionado con lo anterior: hoy el sistema valida que una intervención sea *segura* (invariants OK, goals preservados, parseable), pero no que sea *semánticamente coherente*. El LLM puede producir una intervención que satisface todas las restricciones formales pero es absurda en contexto. La distinción entre "decisión semánticamente válida" y "heurística conveniente" requiere un modelo formal de validez de intervención que hoy no existe.
 
@@ -1492,15 +1583,15 @@ Esto sugiere que AURA es, hasta donde sabemos, **el primer runtime de lenguaje d
 
 ## 9. Conclusión
 
-Este trabajo se estructuró alrededor de seis preguntas fundacionales (Sección 4.1) que cualquier modelo de computación debe responder. Las respuestas formales---22 definiciones, 8 teoremas, 6 proposiciones, y 1 conjetura (Secciones 4.2-4.14)---convergen en una tesis:
+Este trabajo se estructuró alrededor de seis preguntas fundacionales (Sección 4.1) que cualquier modelo de computación debe responder. Las respuestas formales---28 definiciones, 8 teoremas, 9 proposiciones, 4 desiderata, y 1 conjetura (Secciones 4.2-4.14)---convergen en una tesis:
 
 > Un programa AURA no define una función de entradas a salidas, sino un espacio de historias válidas restringido por semántica declarativa, donde la ejecución es la selección progresiva de una trayectoria consistente bajo incertidumbre.
 
 Los resultados centrales son:
 
-1. **La denotación de un programa es un conjunto de trayectorias** (Definición 15, Teorema 2). Cuando el oráculo está activo, el programa admite múltiples ejecuciones válidas; el oráculo selecciona entre ellas.
+1. **La denotación de un programa es un conjunto de trayectorias** (Definición 20, Teorema 2). Cuando el oráculo está activo, el programa admite múltiples ejecuciones válidas; el oráculo selecciona entre ellas.
 
-2. **La corrección tiene tres niveles** (Definiciones 16-18, Teorema 3): corrección estructural (la ejecución respetó las reglas), intención satisfecha (los goals evalúan a true), e intención preservada (las intervenciones son coherentes con la semántica intencional). Los conversos son falsos---cada nivel es estrictamente más fuerte.
+2. **La corrección tiene tres niveles** (Definiciones 21-23, Teorema 3): corrección estructural (la ejecución respetó las reglas), intención satisfecha (los goals evalúan a true), e intención preservada (las intervenciones son coherentes con la semántica intencional). Los conversos son falsos---cada nivel es estrictamente más fuerte.
 
 3. **Toda intervención preserva la especificación** (Teorema 4): goals e invariantes se mantienen invariantes bajo toda transición →_o, incluyendo Fix que reescribe el código.
 
@@ -1512,7 +1603,7 @@ Los resultados centrales son:
 
 La implementación en Rust (267 tests, modo cognitivo funcional con auto-reparación demostrada) prueba que el modelo es realizable. La evaluación empírica (Sección 7) muestra que el overhead cognitivo sin errores es constante (~900 μs), que una reparación exitosa cuesta menos de 2x el tiempo de crash, y que el `NullCognitiveRuntime` asegura cero overhead para programas no cognitivos.
 
-Los problemas abiertos son significativos y productivos: la brecha entre intención satisfecha e intención preservada (Definición 18, Sección 4.7), los tipos cognitivos y la conjetura de programas open-world (Sección 4.13), y la complejidad computacional cognitiva (Sección 4.14). Estos son preguntas sobre modelos de computación, no sobre arquitectura de software---lo cual confirma que AURA opera en el espacio teórico correcto.
+Los problemas abiertos son significativos y productivos: la brecha entre intención satisfecha e intención preservada (Definición 23, Sección 4.7), los tipos cognitivos y la conjetura de programas open-world (Sección 4.13), y la complejidad computacional cognitiva (Sección 4.14). Estos son preguntas sobre modelos de computación, no sobre arquitectura de software---lo cual confirma que AURA opera en el espacio teórico correcto.
 
 Si un programa ya no es una función sino una trayectoria en un espacio restringido, y si el oráculo que guía esa trayectoria es un modelo de lenguaje grande que entiende la semántica del código que ejecuta---entonces la frontera entre "programar" y "especificar intenciones para que una máquina las navegue" se desdibuja de maneras que la teoría de lenguajes de programación aún no ha explorado. AURA hace esa exploración concreta, formal, y tratable.
 
