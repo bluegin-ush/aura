@@ -8,6 +8,36 @@
 
 ---
 
+### Abreviaturas
+
+| Abreviatura | Significado |
+|---|---|
+| 2APL | 2nd Agent Programming Language |
+| ACT-R | Adaptive Control of Thought—Rational |
+| AOPL | Agent-Oriented Programming Language |
+| APR | Automatic Program Repair |
+| AST | Abstract Syntax Tree |
+| AURA | Agent-Unified Runtime Architecture |
+| BDI | Belief-Desire-Intention |
+| CLOS MOP | Common Lisp Object System Meta-Object Protocol |
+| CTL | Computation Tree Logic |
+| DSL | Domain-Specific Language |
+| FORMS | Formal Reference Model for Self-adaptation |
+| HTN | Hierarchical Task Network |
+| IoT | Internet of Things |
+| LIDA | Learning Intelligent Distribution Agent |
+| LLM | Large Language Model |
+| LMQL | Language Model Query Language |
+| LTL | Linear Temporal Logic |
+| MAPE-K | Monitor-Analyze-Plan-Execute over Knowledge |
+| RSS | Resident Set Size |
+| SARL | SARL Agent-Oriented Programming Language |
+| Soar | State, Operator, And Result |
+| STM | Software Transactional Memory |
+| VM | Virtual Machine |
+
+---
+
 ## 1. Introducción
 
 ### 1.1 La brecha paradigmática
